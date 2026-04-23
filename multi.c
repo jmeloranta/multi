@@ -57,9 +57,14 @@
  * Remove duplicate messages and retain the message with best report?
  * Use this with wsjt-x - not so useful in standalone mode.
  *
+ * TODO: Somehow wsjtx-improved filtering does not work with this. Tried putting source letter
+ *       in various places but that did not help.
+ *
  */
 
 #define REMOVE_DUPES
+
+#define STAT_LOC 21       // Where to add the source
 
 #define TEMP1 "/tmp/proc1"
 #define TEMP2 "/tmp/proc2"
@@ -80,6 +85,11 @@ void cleanup(int x) {
   exit(0); // will also automatically free *decodes[]
 }
 
+void add_id(char *str, char id) {
+
+  str[STAT_LOC] = id;
+}
+
 void read_line(int fd, char *buf) {
 
   int i, st;
@@ -93,7 +103,6 @@ void read_line(int fd, char *buf) {
 
 int get_decodes(int fd, char id, int ndecodes) {
 
-  char *ptr;
   int i = ndecodes, gotit = 0;
 
   while(!gotit) {
@@ -101,7 +110,7 @@ int get_decodes(int fd, char id, int ndecodes) {
     if(!strncmp(decodes[i], "<DecodeFinished>", 16)) gotit = 1;
     else {
       if(isdigit(*decodes[i])) {
-        if((ptr = strchr(decodes[i], '~'))) *ptr = id;
+        add_id(decodes[i], id);
         i++;
       }
     }
@@ -147,7 +156,7 @@ void proc_decodes(int n) {
 	    else if(rpt1 < rpt2) *decodes[i] = '\0'; // j stronger
 	    else {
 	      *decodes[i] = '\0';
-	      decodes[j][21] = '='; // indicate that a and b were equally strong
+              add_id(decodes[j], '=');  // indicate that a and b were equally strong
 	    }
 	  }
 	}
@@ -206,21 +215,21 @@ int main(int argc, char **argv) {
     FD_SET(p2[0], &fds);
     select(MAX(p1[0],p2[0])+1, &fds, NULL, NULL, NULL);
     if(FD_ISSET(p1[0], &fds)) {
-      ndecodes = get_decodes(p1[0], 'a', ndecodes);
+      ndecodes = get_decodes(p1[0], 'A', ndecodes);
       FD_ZERO(&fds);
       FD_SET(p2[0], &fds);
       tv.tv_sec = PROCESS_SYNC;
       tv.tv_usec = 0;
       select(p2[0]+1, &fds, NULL, NULL, &tv);
-      if(FD_ISSET(p2[0], &fds)) ndecodes = get_decodes(p2[0], 'b', ndecodes);
+      if(FD_ISSET(p2[0], &fds)) ndecodes = get_decodes(p2[0], 'B', ndecodes);
     } else if(FD_ISSET(p2[0], &fds)) {
-      ndecodes = get_decodes(p2[0], 'b', ndecodes);
+      ndecodes = get_decodes(p2[0], 'B', ndecodes);
       FD_ZERO(&fds);
       FD_SET(p1[0], &fds);
       tv.tv_sec = PROCESS_SYNC;
       tv.tv_usec = 0;
       select(p1[0]+1, &fds, NULL, NULL, &tv);
-      if(FD_ISSET(p1[0], &fds)) ndecodes = get_decodes(p1[0], 'a', ndecodes);
+      if(FD_ISSET(p1[0], &fds)) ndecodes = get_decodes(p1[0], 'A', ndecodes);
     }
     proc_decodes(ndecodes);
     ndecodes = show_decodes(ndecodes);
