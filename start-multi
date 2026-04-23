@@ -1,0 +1,4 @@
+#!/bin/bash
+/usr/local/bin/wsjtx &
+/usr/local/bin/wsjtx -r 2&
+exit 0

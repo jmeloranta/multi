@@ -35,7 +35,7 @@
  *     # cp multi /usr/bin/jt9
  */
 
-#define JT9PATH "/usr/bin/jt9.x"  // Path to real jt9 program (jt9.x)
+#define JT9PATH "/usr/local/bin/jt9.x"  // Path to real jt9 program (jt9.x) or put /usr/bin/jt9.x
                                   // For standalone operation (useful for antenna testing), keep JT9PATH
                                   // as jt9 and run this program manually
 
