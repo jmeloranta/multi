@@ -1,4 +1,6 @@
 #!/bin/bash
 /usr/local/bin/wsjtx &
-/usr/local/bin/wsjtx -r 2&
+/usr/local/bin/wsjtx -r 2
+killall /usr/local/bin/jt9
+killall /usr/local/bin/jt9.x
 exit 0
