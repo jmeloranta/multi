@@ -5,6 +5,9 @@
  * NOTE: When running this in standalone mode, wsjt-x and this program compete for the shared memory data
  * and things do not work quite right. Missed decodes on both sides.
  *
+ * Mode ~ is replaced by a (RX a), b (RX b), A, B depending on which RX had better SNR. The uppercase letters
+ *        indicate that the difference was more than 5 dB (i.e., 6 dB or higher).
+ *
  */
 
 #define _GNU_SOURCE
@@ -133,7 +136,7 @@ int show_decodes(int n) {
 
 void proc_decodes(int n) {
 
-  int i, j, rpt1, rpt2;
+  int i, j, rpt1, rpt2, diff;
   char call[64], msg1[128], msg2[128], *ptr;
 
   for (i = 0; i < n; i++) {
@@ -152,9 +155,13 @@ void proc_decodes(int n) {
 	  sscanf(decodes[j], "%*d %d %*f %*d %*s %[^\n]", &rpt2, msg2);
 	  if((ptr = strstr(msg2, "     "))) *ptr = '\0';
 	  if(!strcmp(msg1, msg2)) {
-	    if(rpt1 > rpt2) *decodes[j] = '\0'; // i stronger
-	    else if(rpt1 < rpt2) *decodes[i] = '\0'; // j stronger
-	    else {
+	    if(rpt1 > rpt2) {
+	      *decodes[j] = '\0'; // i stronger
+	      if(abs(rpt1 - rpt2) > 5) decodes[i][STAT_LOC] = toupper(decodes[i][STAT_LOC]);
+	    } else if(rpt1 < rpt2) {
+	      *decodes[i] = '\0'; // j stronger
+	      if(abs(rpt1 - rpt2) > 5) decodes[j][STAT_LOC] = toupper(decodes[j][STAT_LOC]);
+	    } else {
 	      *decodes[i] = '\0';
               add_id(decodes[j], '=');  // indicate that a and b were equally strong
 	    }
@@ -215,21 +222,21 @@ int main(int argc, char **argv) {
     FD_SET(p2[0], &fds);
     select(MAX(p1[0],p2[0])+1, &fds, NULL, NULL, NULL);
     if(FD_ISSET(p1[0], &fds)) {
-      ndecodes = get_decodes(p1[0], 'A', ndecodes);
+      ndecodes = get_decodes(p1[0], 'a', ndecodes);
       FD_ZERO(&fds);
       FD_SET(p2[0], &fds);
       tv.tv_sec = PROCESS_SYNC;
       tv.tv_usec = 0;
       select(p2[0]+1, &fds, NULL, NULL, &tv);
-      if(FD_ISSET(p2[0], &fds)) ndecodes = get_decodes(p2[0], 'B', ndecodes);
+      if(FD_ISSET(p2[0], &fds)) ndecodes = get_decodes(p2[0], 'b', ndecodes);
     } else if(FD_ISSET(p2[0], &fds)) {
-      ndecodes = get_decodes(p2[0], 'B', ndecodes);
+      ndecodes = get_decodes(p2[0], 'b', ndecodes);
       FD_ZERO(&fds);
       FD_SET(p1[0], &fds);
       tv.tv_sec = PROCESS_SYNC;
       tv.tv_usec = 0;
       select(p1[0]+1, &fds, NULL, NULL, &tv);
-      if(FD_ISSET(p1[0], &fds)) ndecodes = get_decodes(p1[0], 'A', ndecodes);
+      if(FD_ISSET(p1[0], &fds)) ndecodes = get_decodes(p1[0], 'a', ndecodes);
     }
     proc_decodes(ndecodes);
     ndecodes = show_decodes(ndecodes);
