@@ -70,6 +70,9 @@
 
 #define STAT_LOC 21       // Where to add the source
 
+#define EQUAL_THR  2      // Equal signal strength threshold (=)
+#define UPCASE_THR 8      // Uppercase thershold for strength reporting (a vs. A and b vs. B)
+
 #define TEMP1 "/tmp/proc1"
 #define TEMP2 "/tmp/proc2"
 
@@ -166,12 +169,12 @@ void proc_decodes(int n) {
 	  sscanf(decodes[j], "%*d %d %*f %*d %*s %[^\n]", &rpt2, msg2);
 	  if((ptr = strstr(msg2, "     "))) *ptr = '\0';
 	  if(!strcmp(msg1, msg2)) {
-	    if(rpt1 > rpt2) {
+	    if(rpt1 > rpt2 && abs(rpt1-rpt2) >= EQUAL_THR) {
 	      *decodes[j] = '\0'; // i stronger
-	      if(abs(rpt1 - rpt2) > 5) decodes[i][STAT_LOC] = toupper(decodes[i][STAT_LOC]);
-	    } else if(rpt1 < rpt2) {
+	      if(abs(rpt1 - rpt2) >= UPCASE_THR) decodes[i][STAT_LOC] = toupper(decodes[i][STAT_LOC]);
+	    } else if(rpt1 < rpt2 && abs(rpt1-rpt2) >= EQUAL_THR) {
 	      *decodes[i] = '\0'; // j stronger
-	      if(abs(rpt1 - rpt2) > 5) decodes[j][STAT_LOC] = toupper(decodes[j][STAT_LOC]);
+	      if(abs(rpt1 - rpt2) >= UPCASE_THR) decodes[j][STAT_LOC] = toupper(decodes[j][STAT_LOC]);
 	    } else {
 	      *decodes[i] = '\0';
               add_id(decodes[j], '=');  // indicate that a and b were equally strong

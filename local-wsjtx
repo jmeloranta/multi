@@ -3,6 +3,5 @@ foreach file (`pacman -Ql wsjtx-improved | cut -d\  -f2`)
   install -D $file `echo $file | sed -e "s-/usr/-/usr/local/-g"`
 end
 mv /usr/local/bin/jt9 /usr/local/bin/jt9.x
-cp multi /usr/local/bin
 ln -s /usr/local/bin/multi /usr/local/bin/jt9
 exit 0
