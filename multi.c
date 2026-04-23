@@ -6,7 +6,8 @@
  * and things do not work quite right. Missed decodes on both sides.
  *
  * Mode ~ is replaced by a (RX a), b (RX b), A, B depending on which RX had better SNR. The uppercase letters
- *        indicate that the difference was more than 5 dB (i.e., 6 dB or higher).
+ *        indicate that the difference was more than 5 dB (i.e., 6 dB or higher). Also if only one RX decoded
+ *        the message, it will be in uppercase.
  *
  */
 
@@ -165,9 +166,11 @@ void proc_decodes(int n) {
 	      *decodes[i] = '\0';
               add_id(decodes[j], '=');  // indicate that a and b were equally strong
 	    }
+            found = 1;
 	  }
 	}
       }
+      if(j == n) decodes[i][STAT_LOC] = toupper(decodes[i][STAT_LOC]); // the other RX did not receive
     }
   }
 }
