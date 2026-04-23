@@ -135,18 +135,28 @@ int show_decodes(int n) {
   return d;
 }
 
+int check_mycall(char *msg, char *mycall) {
+
+  char p1[32], p2[32], p3[32];
+
+  p1[0] = p2[0] = p3[0] = '\0';
+  sscanf(msg, "%*d %*d %*f %*d %*s %s %s %s", p1, p2, p3);
+  if(!strcmp(p2, mycall)) return 1;
+  if(!strcmp(p1, "CQ") && !strcmp(p3, mycall)) return 1;
+  return 0;
+}
+
 void proc_decodes(int n) {
 
   int i, j, rpt1, rpt2, diff;
-  char call[64], msg1[128], msg2[128], *ptr;
+  char msg1[128], msg2[128], *ptr;
 
   for (i = 0; i < n; i++) {
     if(*decodes[i] == '\0') {
       i++;
       continue;
     }
-    sscanf(decodes[i], "%*d %*d %*f %*d %*s %*s %s", call);
-    if(!strcmp(call, CALL))
+    if(check_mycall(decodes[i], CALL))
       *decodes[i] = '\0'; // eliminate own call msgs on slave
     else {
       sscanf(decodes[i], "%*d %d %*f %*d %*s %[^\n]", &rpt1, msg1);
@@ -166,7 +176,7 @@ void proc_decodes(int n) {
 	      *decodes[i] = '\0';
               add_id(decodes[j], '=');  // indicate that a and b were equally strong
 	    }
-            found = 1;
+	    break;
 	  }
 	}
       }
