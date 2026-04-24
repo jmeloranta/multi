@@ -1,4 +1,5 @@
 #!/bin/tcsh -f
+# Remember to copy multi to /usr/local/bin
 foreach file (`pacman -Ql wsjtx-improved | cut -d\  -f2`)
   install -D $file `echo $file | sed -e "s-/usr/-/usr/local/-g"`
 end
