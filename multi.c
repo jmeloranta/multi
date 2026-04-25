@@ -47,15 +47,16 @@
  * -M   Use multi threaded ft8 decoder
  * -C # Number of cycles for multi threaded ft8 decoder (1-3; default 3)
  * -R # Multi threaded ft8 decoder RX freq sensitivity (1-3; default 3)
- * -M # Number of threads for multi threaded ft8 decoder (0-12; default 0 (auto))
+ * -N # Number of threads for multi threaded ft8 decoder (0-12; default 0 (auto))
  * -E # Multi threaded ft8 decoder sensitivity (1 - 3; default 3)
  * -D # Multi threaded ft8 decoder start (0 - 4; default 3)
  * -Z   Skip multi threaded ft8 decoder DX call search
  * -d # Decoding depth (1-3; default 1)  "number of decoding passes"
+ * -X # Experience based decoding (default 0). 1 = true or 0 = false.
  *
  */
 
-#define JT9OPTS "-w 1 -m 3 -M -D 1 -d 3"
+#define JT9OPTS "-w 1 -m 2 -M -N 0 -D 1 -d 3 -X 1 -C 3"
 
 /*
  * Remove duplicate messages and retain the message with best report?
@@ -207,6 +208,7 @@ int main(int argc, char **argv) {
   mkdir(TEMP1, 0777);
   mkdir(TEMP2, 0777);
 
+  sleep(1);  // Wait for both WSJT-X GUI processes to get started up
   if(!(proc1 = fork())) {
     char buf[128];
     close(p2[0]);
