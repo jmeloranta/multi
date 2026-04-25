@@ -1,12 +1,25 @@
 /* 
- * WSJT-X aggregator - collect data from two sources and feed the decodes into single wsjt-x instance.
- * Tested only with FT8.
+ * WSJT-X aggregator - collect data from two sources and feed the decodes into single wsjt-x instance (master).
+ * The second wsjt-x instance (slave) is just feeding the audio data to jt9 shared memory & displays the waterfall.
+ * I use this for getting decodes from two receivers in my Elecraft K4D, which have different antennas connected
+ * to them. In my case RX a has inverted L on 160/80m and beverage on RX b.
  *
- * NOTE: When running this in standalone mode, wsjt-x and this program compete for the shared memory data
- * and things do not work quite right. Missed decodes on both sides.
+ * This program replaces the standard /usr/bin/jt9 and the original becomes /usr/bin/jt9.x
+ * So: # mv /usr/bin/jt9 /usr/bin/jt9.x
+ *     # cp multi /usr/bin
+ *     # ln -s /usr/local/bin/multi /usr/local/bin/jt9
+ * See local-wsjtx script
+ *
+ * To laumch two wsjt-x GUI processes, see start-multi script.
+ * 
+ * NOTES: 
+ * - When running this in standalone mode, wsjt-x and this program compete for the shared memory data
+ *   and things do not work quite right. Results in missed decodes on both sides.
+ * - This works only with FT8.
+ * - Filtering in wsjt-x improved does not work for some reason. So keep the filters disabled.
  *
  * Mode ~ is replaced by a (RX a), b (RX b), A, B depending on which RX had better SNR. The uppercase letters
- *        indicate that the difference was more than 5 dB (i.e., 6 dB or higher). Also if only one RX decoded
+ *        indicate that the difference was more than 8 dB. Also if only one RX decoded
  *        the message, it will be in uppercase.
  *
  */
@@ -22,25 +35,20 @@
 #include <sys/stat.h>
 #include <sys/select.h>
 
-/* Your call sign (uppercase) */
+/* Your call sign (uppercase) - used to exclude your own transmission from slave WSJT-X */
 #define CALL "AA6KJ"
 
-/* Share memory segment names (from running two separate WSJT-X's), second started with -r 2 */
+/* Share memory segment names (from running two separate WSJT-X's), second started with "wsjtx -r 2" */
 
 #define SHM1 "WSJT-X"
 #define SHM2 "WSJT-X\\ -\\ 2"
-
-/* Note: This program replaces the standard /usr/bin/jt9 and the original becomes /usr/bin/jt9.x */
-/* So: # mv /usr/bin/jt9 /usr/bin/jt9.x
- *     # cp multi /usr/bin/jt9
- */
 
 #define JT9PATH "/usr/local/bin/jt9.x"  // Path to real jt9 program (jt9.x) or put /usr/bin/jt9.x
                                   // For standalone operation (useful for antenna testing), keep JT9PATH
                                   // as jt9 and run this program manually
 
 /* 
- * We do not pass parameters form wsjtx to jt9. Instead we choose them manually.
+ * We do not pass parameters form wsjtx to jt9. Instead we choose them manually. Here are some decoding options:
  *
  * -w # fftw plan mode (0-4; default 1)
  * -m # fftw threads (default 1)
@@ -62,26 +70,24 @@
  * Remove duplicate messages and retain the message with best report?
  * Use this with wsjt-x - not so useful in standalone mode.
  *
- * TODO: Somehow wsjtx-improved filtering does not work with this. Tried putting source letter
- *       in various places but that did not help.
- *
  */
 
 #define REMOVE_DUPES
 
-#define STAT_LOC 21       // Where to add the source
+#define STAT_LOC 21       // Character location in decode where to add the source
 
 #define EQUAL_THR  2      // Equal signal strength threshold (=)
 #define UPCASE_THR 8      // Uppercase thershold for strength reporting (a vs. A and b vs. B)
 
-#define TEMP1 "/tmp/proc1"
+#define TEMP1 "/tmp/proc1" // Each jt9 process has its own temp directory just in case
 #define TEMP2 "/tmp/proc2"
 
+#define START_WAIT   1    // Wait time before start jt9.x processes (helps avoid timing issue at the start)
 #define PROCESS_SYNC 3    // 3 seconds for letting the other jt9 process to finish
 
 #define MAX_DECODES 256
 
-#define MAX(a,b) ((a > b)?a:b)
+#define MAX(a,b) (((a) > (b))?(a):(b))
 
 pid_t proc1, proc2;
 char *decodes[MAX_DECODES];
@@ -208,7 +214,7 @@ int main(int argc, char **argv) {
   mkdir(TEMP1, 0777);
   mkdir(TEMP2, 0777);
 
-  sleep(1);  // Wait for both WSJT-X GUI processes to get started up
+  sleep(START_WAIT);
   if(!(proc1 = fork())) {
     char buf[128];
     close(p2[0]);
