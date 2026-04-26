@@ -78,7 +78,7 @@
 #define TEMP2 "/tmp/proc2"
 
 #define START_WAIT   1    // Wait time before start jt9.x processes (helps avoid timing issue at the start)
-#define PROCESS_SYNC 3    // 3 seconds for letting the other jt9 process to finish
+#define PROCESS_SYNC 4    // 4 seconds for letting the other jt9 process to finish
 
 #define MAX_DECODES 256
 
@@ -217,7 +217,7 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
 #ifdef COLLECT_STATS
       collect_stats(msg2, NOT_HEARD_DB, rpt2); // head only on slave
 #endif
-      decodes_2[j][STAT_LOC] = toupper(decodes_2[j][STAT_LOC]); // the other RX did not receive
+      decodes_2[j][STAT_LOC] = 'B'; // the other RX did not receive
     }
   }
 
@@ -228,7 +228,7 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
       sscanf(decodes_1[i], "%*d %d %*f %*d %*s %[^\n]", &rpt1, msg1);
       collect_stats(msg1, rpt1, NOT_HEARD_DB); // heard only on master
 #endif
-      decodes_1[i][STAT_LOC] = 'B';
+      decodes_1[i][STAT_LOC] = 'A';
     }
 }
 
