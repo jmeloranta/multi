@@ -136,19 +136,14 @@ void collect_stats(char *msg, int rpt1, int rpt2) {
 }
 #endif
 
-int get_decodes(int fd, char id, char *decodes[]) {
+int get_decodes(int fd, char *decodes[]) {
 
-  int i = 0, gotit = 0;
+  int i = 0;
 
-  while(!gotit) {
+  while(1) {
     read_line(fd, decodes[i]);
-    if(!strncmp(decodes[i], "<DecodeFinished>", 16)) gotit = 1;
-    else {
-      if(isdigit(*decodes[i])) {
-        add_id(decodes[i], id);
-        i++;
-      }
-    }
+    if(!strncmp(decodes[i], "<DecodeFinished>", 16)) break;
+    i++;
   }
   return i;
 }
@@ -287,21 +282,21 @@ int main(int argc, char **argv) {
     FD_SET(p2[0], &fds);
     select(MAX(p1[0],p2[0])+1, &fds, NULL, NULL, NULL);
     if(FD_ISSET(p1[0], &fds)) {
-      ndecodes1 = get_decodes(p1[0], 'a', decodes_1);
+      ndecodes1 = get_decodes(p1[0], decodes_1);
       FD_ZERO(&fds);
       FD_SET(p2[0], &fds);
       tv.tv_sec = PROCESS_SYNC;
       tv.tv_usec = 0;
       select(p2[0]+1, &fds, NULL, NULL, &tv);
-      if(FD_ISSET(p2[0], &fds)) ndecodes2 = get_decodes(p2[0], 'b', decodes_2);
+      if(FD_ISSET(p2[0], &fds)) ndecodes2 = get_decodes(p2[0], decodes_2);
     } else if(FD_ISSET(p2[0], &fds)) {
-      ndecodes2 = get_decodes(p2[0], 'b', decodes_2);
+      ndecodes2 = get_decodes(p2[0], decodes_2);
       FD_ZERO(&fds);
       FD_SET(p1[0], &fds);
       tv.tv_sec = PROCESS_SYNC;
       tv.tv_usec = 0;
       select(p1[0]+1, &fds, NULL, NULL, &tv);
-      if(FD_ISSET(p1[0], &fds)) ndecodes1 = get_decodes(p1[0], 'a', decodes_1);
+      if(FD_ISSET(p1[0], &fds)) ndecodes1 = get_decodes(p1[0], decodes_1);
     }
     proc_decodes(decodes_1, ndecodes1, decodes_2, ndecodes2);
     ndecodes1 = show_decodes(decodes_1, ndecodes1);
