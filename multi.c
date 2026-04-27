@@ -64,7 +64,8 @@
  *
  */
 
-#define JT9OPTS "-w 1 -m 2 -M -N 0 -D 1 -d 3 -X 1 -C 3"
+//#define JT9OPTS "-w 1 -m 2 -M -N 0 -D 1 -d 3 -X 1 -C 3"
+#define JT9OPTS "-w 1 -m 3"
 
 // #define COLLECT_STATS "/home/eloranta/stat.out" // Collect statistics of RX signal strengths?
 #define NOT_HEARD_DB (-26)   // If not heard, use this value for dB in stats
@@ -78,13 +79,18 @@
 #define TEMP2 "/tmp/proc2"
 
 #define START_WAIT   1    // Wait time before start jt9.x processes (helps avoid timing issue at the start)
-#define PROCESS_SYNC 4    // 4 seconds for letting the other jt9 process to finish
+#define PROCESS_SYNC 2    // 4 seconds for letting the other jt9 process to finish
 
 #define MAX_DECODES 256
+
+// #define DEBUG
 
 #define MAX(a,b) (((a) > (b))?(a):(b))
 
 pid_t proc1, proc2;
+#ifdef DEBUG
+int debug_fd = -1;
+#endif
 #ifdef COLLECT_STATS
 int stat_fd = -1;
 #endif
@@ -93,6 +99,9 @@ void cleanup(int x) {
 
 #ifdef COLLECT_STATS
   close(stat_fd);
+#endif
+#ifdef DEBUG
+  close(debug_fd);
 #endif
   kill(proc1, SIGKILL);
   kill(proc2, SIGKILL);
@@ -106,10 +115,10 @@ void add_id(char *str, char id) {
 
 void read_line(int fd, char *buf) {
 
-  int i, st;
+  int i, st, l;
 
   for (i = 0; i < 512; i++) {
-    if(read(fd, buf + i, 1) < 0) cleanup(0);  // Read error -> exit
+    while((l = read(fd, buf + i, 1)) != 1) if(l < 0) cleanup(0);  // Read error -> exit
     if(buf[i] == '\n') break;
   }
   buf[i+1] = '\0';
@@ -136,16 +145,35 @@ void collect_stats(char *msg, int rpt1, int rpt2) {
 }
 #endif
 
-int get_decodes(int fd, char *decodes[]) {
+void get_decodes(int fd1, int fd2, char *decodes1[], char *decodes2[], int *nd1, int *nd2) {
 
-  int i = 0;
+  fd_set fds;
+  struct timeval tv;
 
+// TODO: skip if data from previous time slice
+  *nd1 = *nd2 = 0;
   while(1) {
-    read_line(fd, decodes[i]);
-    if(!strncmp(decodes[i], "<DecodeFinished>", 16)) break;
-    i++;
+    FD_ZERO(&fds);
+    FD_SET(fd1, &fds);
+    FD_SET(fd2, &fds);
+    tv.tv_sec = PROCESS_SYNC;
+    tv.tv_usec = 0;
+    if(!select(MAX(fd1,fd2)+1, &fds, NULL, NULL, &tv)) break;
+    if(FD_ISSET(fd1, &fds)) {
+      while(1) {
+        read_line(fd1, decodes1[*nd1]);
+        if(!strncmp(decodes1[*nd1], "<DecodeFinished>", 16)) break;
+        (*nd1)++;
+      }
+    }
+    if(FD_ISSET(fd2, &fds)) {
+      while(1) {
+        read_line(fd2, decodes2[*nd2]);
+        if(!strncmp(decodes2[*nd2], "<DecodeFinished>", 16)) break;
+        (*nd2)++;
+      }
+    }
   }
-  return i;
 }
 
 int show_decodes(char *decodes[], int ndecodes) {
@@ -233,8 +261,6 @@ int main(int argc, char **argv) {
 
   int p1[2], p2[2], sync_time = -1, i;
   char buf[512];
-  struct timeval tv;
-  fd_set fds;
   char *decodes_1[MAX_DECODES], *decodes_2[MAX_DECODES];
   int ndecodes1, ndecodes2;
 
@@ -277,29 +303,12 @@ int main(int argc, char **argv) {
     decodes_2[i] = (char *) malloc(sizeof(char) * 128);
   }
 
+#ifdef DEBUG
+    if((debug_fd = open("/home/eloranta/debug.txt", O_RDWR | O_CREAT, S_IRUSR | S_IWUSR)) < 0) exit(1);
+#endif
+
   while(1) {
-    ndecodes1 = ndecodes2 = 0;
-    FD_ZERO(&fds);
-    FD_SET(p1[0], &fds);
-    FD_SET(p2[0], &fds);
-    select(MAX(p1[0],p2[0])+1, &fds, NULL, NULL, NULL);
-    if(FD_ISSET(p1[0], &fds)) {
-      ndecodes1 = get_decodes(p1[0], decodes_1);
-      FD_ZERO(&fds);
-      FD_SET(p2[0], &fds);
-      tv.tv_sec = PROCESS_SYNC;
-      tv.tv_usec = 0;
-      select(p2[0]+1, &fds, NULL, NULL, &tv);
-      if(FD_ISSET(p2[0], &fds)) ndecodes2 = get_decodes(p2[0], decodes_2);
-    } else if(FD_ISSET(p2[0], &fds)) {
-      ndecodes2 = get_decodes(p2[0], decodes_2);
-      FD_ZERO(&fds);
-      FD_SET(p1[0], &fds);
-      tv.tv_sec = PROCESS_SYNC;
-      tv.tv_usec = 0;
-      select(p1[0]+1, &fds, NULL, NULL, &tv);
-      if(FD_ISSET(p1[0], &fds)) ndecodes1 = get_decodes(p1[0], decodes_1);
-    }
+    get_decodes(p1[0], p2[0], decodes_1, decodes_2, &ndecodes1, &ndecodes2);
     proc_decodes(decodes_1, ndecodes1, decodes_2, ndecodes2);
     ndecodes1 = show_decodes(decodes_1, ndecodes1);
     ndecodes2 = show_decodes(decodes_2, ndecodes2);
