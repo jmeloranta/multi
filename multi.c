@@ -1,26 +1,29 @@
 /* 
  * WSJT-X aggregator - collect data from two sources and feed the decodes into single wsjt-x instance (master).
  * The second wsjt-x instance (slave) is just feeding the audio data to jt9 shared memory & displays the waterfall.
- * I use this for getting decodes from two receivers in my Elecraft K4D, which have different antennas connected
- * to them. In my case RX a has inverted L on 160/80m and beverage on RX b.
+ * I use this for getting decodes from the two receivers in my Elecraft K4D, which have different antennas connected
+ * to them. In my case RX a (master) has inverted L on 160/80m and beverage on RX b (slave). Be sure to configure 
+ * the audio inputs such that, for example, master WSJT-X uses the left stereo channel and the slave the right. 
+ * Audio from the two RXs is transmitted from the radio that way.
  *
- * This program replaces the standard /usr/bin/jt9 and the original becomes /usr/bin/jt9.x
- * So: # mv /usr/bin/jt9 /usr/bin/jt9.x
- *     # cp multi /usr/bin
- *     # ln -s /usr/local/bin/multi /usr/local/bin/jt9
- * See local-wsjtx script
- *
- * To laumch two wsjt-x GUI processes, see start-multi script.
+ * This program replaces the standard jt9 and the original becomes jt9.x. This this program acts as a middle man
+ * between WSJT-X GUI and jt9 decoder.
  * 
- * NOTES: 
- * - When running this in standalone mode, wsjt-x and this program compete for the shared memory data
- *   and things do not work quite right. Results in missed decodes on both sides.
- * - This works only with FT8.
- * - Filtering in wsjt-x improved does not work for some reason. So keep the filters disabled.
- *
  * Mode ~ is replaced by a (RX a), b (RX b), A, B depending on which RX had better SNR. The uppercase letters
  *        indicate that the difference was more than 8 dB. Also if only one RX decoded
- *        the message, it will be in uppercase.
+ *        the message, it will be in uppercase with ! added after it.
+ *
+ * When performing RX antenna comparisons (COLLECT STATS), be sure to be on band that does not have too 
+ * many stations. Timing is critical here and it is possible that we miss late decodes because we need 
+ * to stay within the 2 sec time tolerance.
+ *
+ * NOTES: 
+ * - This works only with FT8.
+ * - Filtering in wsjt-x improved does not work for some reason. So keep the filters disabled.
+ * - I recommend keeping this separate from your standard WSJT-X program and install this under
+ *   /usr/local/bin. See Makefile install section and local-wsjtx script.
+ * - Make sure that your computer is sufficiently fast - otherwise it will miss decodes.
+ *   Here we have to do more than twice as much work as with normal WSJT-X.
  *
  */
 
@@ -44,12 +47,10 @@
 #define SHM1 "WSJT-X"
 #define SHM2 "WSJT-X\\ -\\ 2"
 
-#define JT9PATH "/usr/local/bin/jt9.x"  // Path to real jt9 program (jt9.x) or put /usr/bin/jt9.x
-                                  // For standalone operation (useful for antenna testing), keep JT9PATH
-                                  // as jt9 and run this program manually
+#define JT9PATH "/usr/local/bin/jt9.x"  // Path to real jt9 program (jt9.x)
 
 /* 
- * We do not pass parameters form wsjtx to jt9. Instead we choose them manually. Here are some decoding options:
+ * We do not pass parameters form wsjtx gui to jt9. Instead we choose them manually here:
  *
  * -w # fftw plan mode (0-4; default 1)
  * -m # fftw threads (default 1)
@@ -68,7 +69,7 @@
 #define JT9OPTS "-w 1 -m 3 -M -N 0 -D 1 -d 3 -X 1 -C 3"
 //#define JT9OPTS "-w 1 -m 3"
 
-// #define COLLECT_STATS "/home/eloranta/stat.out" // Collect statistics of RX signal strengths?
+// #define COLLECT_STATS "/home/eloranta/stat.out" // Collect statistics of RX signal strengths
 #define NOT_HEARD_DB (-26)   // If not heard, use this value for dB in stats
 
 #define STAT_LOC 21       // Character location in decode where to add the source
