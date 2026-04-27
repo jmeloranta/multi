@@ -64,8 +64,8 @@
  *
  */
 
-//#define JT9OPTS "-w 1 -m 2 -M -N 0 -D 1 -d 3 -X 1 -C 3"
-#define JT9OPTS "-w 1 -m 3"
+#define JT9OPTS "-w 1 -m 2 -M -N 0 -D 1 -d 3 -X 1 -C 3"
+//#define JT9OPTS "-w 1 -m 3"
 
 // #define COLLECT_STATS "/home/eloranta/stat.out" // Collect statistics of RX signal strengths?
 #define NOT_HEARD_DB (-26)   // If not heard, use this value for dB in stats
@@ -150,7 +150,8 @@ void get_decodes(int fd1, int fd2, char *decodes1[], char *decodes2[], int *nd1,
   fd_set fds;
   struct timeval tv;
 
-// TODO: skip if data from previous time slice
+// TODO: skip if data from previous time slice (wsjtx may eliminate these, so debug)
+// we may be missing late decodes still?
   *nd1 = *nd2 = 0;
   while(1) {
     FD_ZERO(&fds);
