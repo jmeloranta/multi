@@ -213,6 +213,7 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
       collect_stats(msg2, NOT_HEARD_DB, rpt2); // head only on slave
 #endif
       decodes_2[j][STAT_LOC] = 'B'; // the other RX did not receive
+      decodes_2[j][STAT_LOC+1] = '!';
     }
   }
 
@@ -224,6 +225,7 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
       collect_stats(msg1, rpt1, NOT_HEARD_DB); // heard only on master
 #endif
       decodes_1[i][STAT_LOC] = 'A';
+      decodes_1[i][STAT_LOC+1] = '!';
     }
 }
 
