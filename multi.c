@@ -65,7 +65,7 @@
  *
  */
 
-#define JT9OPTS "-w 1 -m 2 -M -N 0 -D 1 -d 3 -X 1 -C 3"
+#define JT9OPTS "-w 1 -m 3 -M -N 0 -D 1 -d 3 -X 1 -C 3"
 //#define JT9OPTS "-w 1 -m 3"
 
 // #define COLLECT_STATS "/home/eloranta/stat.out" // Collect statistics of RX signal strengths?
@@ -79,7 +79,8 @@
 #define TEMP2 "/tmp/proc2"
 
 #define START_WAIT   1    // Wait time before start jt9.x processes (helps avoid timing issue at the start)
-#define PROCESS_SYNC 2    // 4 seconds for letting the other jt9 process to finish
+#define PROCESS_SYNC 2    // 2 seconds for letting the other jt9 process to finish.
+                          // Making this longer is good for late decodes but then we might be late in TX
 #define FT8_PERIOD   15   // FT8 period (15 s)
 
 #define MAX_DECODES 256
