@@ -34,6 +34,7 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include <sys/select.h>
+#include <time.h>
 
 /* Your call sign (uppercase) - used to exclude your own transmission from slave WSJT-X */
 #define CALL "AA6KJ"
@@ -71,7 +72,6 @@
 #define NOT_HEARD_DB (-26)   // If not heard, use this value for dB in stats
 
 #define STAT_LOC 21       // Character location in decode where to add the source
-
 #define EQUAL_THR  2      // Equal signal strength threshold (=)
 #define UPCASE_THR 8      // Uppercase thershold for strength reporting (a vs. A and b vs. B)
 
@@ -80,6 +80,7 @@
 
 #define START_WAIT   1    // Wait time before start jt9.x processes (helps avoid timing issue at the start)
 #define PROCESS_SYNC 2    // 4 seconds for letting the other jt9 process to finish
+#define FT8_PERIOD   15   // FT8 period (15 s)
 
 #define MAX_DECODES 256
 
@@ -106,6 +107,18 @@ void cleanup(int x) {
   kill(proc1, SIGKILL);
   kill(proc2, SIGKILL);
   exit(0); // will also automatically free *decodes[]
+}
+
+int getgmt() {
+
+  time_t rt;
+  struct tm *gmt;
+  char buf[64];
+
+  time(&rt);
+  gmt = gmtime(&rt);
+  strftime(buf, sizeof(buf), "%H%M%S", gmt);
+  return atoi(buf);
 }
 
 void add_id(char *str, char id) {
@@ -149,10 +162,10 @@ void get_decodes(int fd1, int fd2, char *decodes1[], char *decodes2[], int *nd1,
 
   fd_set fds;
   struct timeval tv;
+  int ct, dt;
 
-// TODO: skip if data from previous time slice (wsjtx may eliminate these, so debug)
-// we may be missing late decodes still?
   *nd1 = *nd2 = 0;
+  ct = getgmt();
   while(1) {
     FD_ZERO(&fds);
     FD_SET(fd1, &fds);
@@ -163,6 +176,7 @@ void get_decodes(int fd1, int fd2, char *decodes1[], char *decodes2[], int *nd1,
     if(FD_ISSET(fd1, &fds)) {
       while(1) {
         read_line(fd1, decodes1[*nd1]);
+        if(sscanf(decodes1[*nd1], " %d", &dt) == 1 && ct - dt >= FT8_PERIOD) continue; // old late decode data, skip
         if(!strncmp(decodes1[*nd1], "<DecodeFinished>", 16)) break;
         (*nd1)++;
       }
@@ -170,6 +184,7 @@ void get_decodes(int fd1, int fd2, char *decodes1[], char *decodes2[], int *nd1,
     if(FD_ISSET(fd2, &fds)) {
       while(1) {
         read_line(fd2, decodes2[*nd2]);
+        if(sscanf(decodes2[*nd2], " %d", &dt) == 1 && ct - dt >= FT8_PERIOD) continue; // old late decode data, skip
         if(!strncmp(decodes2[*nd2], "<DecodeFinished>", 16)) break;
         (*nd2)++;
       }
