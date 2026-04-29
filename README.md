@@ -1,0 +1,47 @@
+WSJT-X aggregator (Linux only)
+
+Background
+
+My Elecraft K4D has two receivers, which can be used in diversity receive with my TX (inverted L) and RX antennas (beverages) on low bands. 
+So the first RX is connected to inverted L and second to beverage. The radio outputs audio from the RXs to left and right stereo channels.
+But how to take advantage of this set up on FT8? The first thought is to combine the audio channels and feed that into WSJT-X. Even though the
+radio has the two RXs phase locked, there appears to be some differences in the phase factor of their audio signal. Hence it is not a a good idea
+to combined them directly. Reading them separately with WSJT-X is not possible since it only supports one audio input. So, what to do? Proper solution
+would to have WSJT-X GUI read two audio inputs but that's easier said than done.
+
+Solution (FT8 only)
+This program (multi) sits between two WSJT-X GUI processes and their JT9 decoders. One of the GUIs (master) acts as the main program and all QSOs etc.
+go through it. It is set up to read audio from the left stereo channel. It feeds that audio data through shared memory to JT9. The second WSJT-X (right 
+audio channel) just provides the audio data to JT9 and shows the corresponding waterfall display (no decodes). Multi sits between the two WSJT-X GUIs 
+and two separate JT9 decoder processes. It collects the decodes, chooses the decodes with the best signals, inserts signal source & strength information on
+it, and finally passes it to the master WSJT-X GUI. Since the JT9 decoder path is hardcoded into WSJT-X GUI, multi program is placed as jt9 and the actual
+decoder is renamed as jt9.x . Multi has also option for collecting statistics of the decodes that should be useful for antenna comparisons (within the
+transmission period of FT8). Multi.c has compile time option for this (see the source code).
+
+Installation
+Installation assumes that the regular WSJT-X is installed under /usr/bin and the modified WSJT-X under /usr/local. A script called local-wsjtx is
+copies the required files from /usr/bin to /usr/local/bin, renames /usr/local/bin/jt9 to /usr/local/bin/jt9.x and multi program becomes 
+/usr/local/bin/jt9 . To run the program start two separate copies (from /usr/local/bin) of WSJT-X. First without any arguments and the second with
+"-r 2" (2 refers to WSJT-X configuration name). Note that these names are also used to name the shared memory segments through which the audio data
+is provided and they are thus hardcoded into multi program (see the code). The main window of the second WSJT-X GUI can be minimized (but do not close
+it) as it will have no output. Its waterfall display is useful because it shows the signals present on the slave. The first WSJT-X GUI instance will
+show all decodes. Make sure that your radio is set up correctly (audio from the two RXs on left & right stereo input channels) such that it is in
+diversity receive mode.
+
+Using multi
+Using multi is transparent. The master WSJT-X GUI automatically gets the best decodes and there are no changes how the QSOs are run. The only new
+information that appears on the decodes is the source RX and indication how much stronger that RX was compared to the other one. This information
+appears where '~' appears in the normal decode output.
+
+=  Signal received by RX a and b are equally strong
+a  Signal received by RX a is at least 2 dB stronger than b
+b  Signal received by RX b is at least 2 dB stronger than a
+A  Signal received by RX a is more than 8 dB stronger than b
+B  Signal received by RX b is more than 8 dB stronger than a
+A! Only RX a received the signal (no signal on b)
+B! Only RX b received the signal (no signal on a)
+
+Observations
+This approach improved my low band decodes a lot. Just like regular diversity received, it works best with two different types of receive antennas
+(arrival angle & polarization). It does require a fast computer - otherwise there will be missed decodes. These missed decodes appear as A! or B!,
+which can be mistakenly though of either of the RX not receiving the signal at all.
