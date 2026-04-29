@@ -30,7 +30,7 @@ it) as it will have no output. Its waterfall display is useful because it shows 
 show all decodes. Make sure that your radio is set up correctly (audio from the two RXs on left & right stereo input channels) such that it is in
 diversity receive mode.
 
-Observations
+Operation
 
 Using multi is transparent. The master WSJT-X GUI automatically gets the best decodes and there are no changes how the QSOs are run. The only new
 information that appears on the decodes is the source RX and indication how much stronger that RX was compared to the other one. This information
@@ -45,6 +45,7 @@ A! Only RX a received the signal (no signal on b)
 B! Only RX b received the signal (no signal on a)
 
 Observations
+
 This approach improved my low band decodes a lot. Just like regular diversity received, it works best with two different types of receive antennas
 (arrival angle & polarization). It does require a fast computer - otherwise there will be missed decodes. These missed decodes appear as A! or B!,
 which can be mistakenly though of either of the RX not receiving the signal at all.
