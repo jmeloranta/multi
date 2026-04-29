@@ -10,6 +10,7 @@ to combined them directly. Reading them separately with WSJT-X is not possible s
 would to have WSJT-X GUI read two audio inputs but that's easier said than done.
 
 Solution (FT8 only)
+
 This program (multi) sits between two WSJT-X GUI processes and their JT9 decoders. One of the GUIs (master) acts as the main program and all QSOs etc.
 go through it. It is set up to read audio from the left stereo channel. It feeds that audio data through shared memory to JT9. The second WSJT-X (right 
 audio channel) just provides the audio data to JT9 and shows the corresponding waterfall display (no decodes). Multi sits between the two WSJT-X GUIs 
@@ -19,6 +20,7 @@ decoder is renamed as jt9.x . Multi has also option for collecting statistics of
 transmission period of FT8). Multi.c has compile time option for this (see the source code).
 
 Installation
+
 Installation assumes that the regular WSJT-X is installed under /usr/bin and the modified WSJT-X under /usr/local. A script called local-wsjtx is
 copies the required files from /usr/bin to /usr/local/bin, renames /usr/local/bin/jt9 to /usr/local/bin/jt9.x and multi program becomes 
 /usr/local/bin/jt9 . To run the program start two separate copies (from /usr/local/bin) of WSJT-X. First without any arguments and the second with
@@ -28,7 +30,8 @@ it) as it will have no output. Its waterfall display is useful because it shows 
 show all decodes. Make sure that your radio is set up correctly (audio from the two RXs on left & right stereo input channels) such that it is in
 diversity receive mode.
 
-Using multi
+Observations
+
 Using multi is transparent. The master WSJT-X GUI automatically gets the best decodes and there are no changes how the QSOs are run. The only new
 information that appears on the decodes is the source RX and indication how much stronger that RX was compared to the other one. This information
 appears where '~' appears in the normal decode output.
