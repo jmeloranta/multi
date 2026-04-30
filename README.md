@@ -16,7 +16,7 @@ Operation
 
 Using multi is more or less transparent. The master WSJT-X GUI automatically gets the best decodes and there are no changes how the QSOs are run. The only new information that appears on the decodes is the source RX and indication how much stronger that RX was compared to the other one. This information appears where '~' appears in the normal decode output. The status info is as follows:
 
-=  Signal received by RX a and b are equally strong
+=  Signal received by RX a and b are equally strong (within 2 dB)
 a  Signal received by RX a is at least 2 dB stronger than b
 b  Signal received by RX b is at least 2 dB stronger than a
 A  Signal received by RX a is more than 8 dB stronger than b
