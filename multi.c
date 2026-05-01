@@ -209,7 +209,7 @@ int show_decodes(char *decodes[], int ndecodes) {
     if(*decodes[i] != '\0') {
 #ifdef FILTER
       get_call(decodes[i], buf);
-      if(check_prefix(buf)) 
+      if(strchr(decodes[i], ';') || strchr(decodes[i], '<') || check_prefix(buf)) // make sure to show MSHV messages with ; in them or <call>
 #endif
         write(1, decodes[i], strlen(decodes[i]));
       d++;
@@ -225,7 +225,10 @@ void get_call(char *msg, char *call) {
   p1[0] = p2[0] = p3[0] = p4[0] = '\0';
   sscanf(msg, "%*d %*d %*f %*d %*s %s %s %s %s", p1, p2, p3, p4);
   /* CQ XX <call> <locator> */
-  if(!strcmp(p1, "CQ") && p4[0] != '\0') strcpy(call, p3);
+  if(!strcmp(p1, "CQ") && p4[0] != '\0') {
+    strcpy(call, p3);
+    return;
+  }
   /* CQ <call> <locator> or <to_call> <from_call> <msg> */
   strcpy(call, p2);
   return;
