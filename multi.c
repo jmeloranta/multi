@@ -70,7 +70,7 @@
 //#define JT9OPTS "-w 1 -m 3"
 
 // #define COLLECT_STATS "/home/eloranta/stat.out" // Collect statistics of RX signal strengths
-// #define FILTER "/home/eloranta/cty.dat"  // cty file for filtering decodes (undefine to disable)
+// #define FILTER "/home/eloranta/cty.dat"  // cty file with prefixes to display (undefine to disable filtering)
 
 #define NOT_HEARD_DB (-26)   // If not heard, use this value for dB in stats
 
