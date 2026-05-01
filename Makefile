@@ -1,5 +1,5 @@
-multi: multi.c
-	gcc -g multi.c -o multi
+multi: multi.c cty.c
+	gcc -O multi.c cty.c -o multi
 
 install:
 	cp multi /usr/local/bin

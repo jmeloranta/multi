@@ -40,7 +40,7 @@
 #include <time.h>
 
 /* Your call sign (uppercase) - used to exclude your own transmission from slave WSJT-X */
-#define CALL "AA6KJ"
+#define MYCALL "AA6KJ"
 
 /* Share memory segment names (from running two separate WSJT-X's), second started with "wsjtx -r 2" */
 
@@ -70,6 +70,8 @@
 //#define JT9OPTS "-w 1 -m 3"
 
 // #define COLLECT_STATS "/home/eloranta/stat.out" // Collect statistics of RX signal strengths
+// #define FILTER "/home/eloranta/cty.dat"  // cty file for filtering decodes (undefine to disable)
+
 #define NOT_HEARD_DB (-26)   // If not heard, use this value for dB in stats
 
 #define STAT_LOC 21       // Character location in decode where to add the source
@@ -197,25 +199,45 @@ void get_decodes(int fd1, int fd2, char *decodes1[], char *decodes2[], int *nd1,
 int show_decodes(char *decodes[], int ndecodes) {
 
   int i, d = 0;
+#ifdef FILTER
+  char buf[32];
+  void get_call(char *, char *);
+  int check_prefix(char *);
+#endif
 
   for(i = 0; i < ndecodes; i++)
     if(*decodes[i] != '\0') {
-      write(1, decodes[i], strlen(decodes[i]));
+#ifdef FILTER
+      get_call(decodes[i], buf);
+      if(check_prefix(buf)) 
+#endif
+        write(1, decodes[i], strlen(decodes[i]));
       d++;
     }
 
   return d;
 }
 
-int check_mycall(char *msg, char *mycall) {
+void get_call(char *msg, char *call) {
 
-  char p1[32], p2[32], p3[32];
+  char p1[32], p2[32], p3[32], p4[32];
 
-  p1[0] = p2[0] = p3[0] = '\0';
-  sscanf(msg, "%*d %*d %*f %*d %*s %s %s %s", p1, p2, p3);
-  if(!strcmp(p2, mycall)) return 1;
-  if(!strcmp(p1, "CQ") && !strcmp(p3, mycall)) return 1;
-  return 0;
+  p1[0] = p2[0] = p3[0] = p4[0] = '\0';
+  sscanf(msg, "%*d %*d %*f %*d %*s %s %s %s %s", p1, p2, p3, p4);
+  /* CQ XX <call> <locator> */
+  if(!strcmp(p1, "CQ") && p4[0] != '\0') strcpy(call, p3);
+  /* CQ <call> <locator> or <to_call> <from_call> <msg> */
+  strcpy(call, p2);
+  return;
+}
+
+int check_call(char *msg, char *call) {
+
+  char buf[32];
+
+  get_call(msg, buf);
+  if(!strcmp(buf, call)) return 1;
+  else return 0;
 }
 
 void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndecodes2) {
@@ -225,7 +247,7 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
 
   // decodes_1 is RX a and decodes_2 RX b
   for (j = 0; j < ndecodes2; j++) { // loop over RX 2 (slave)
-    if(check_mycall(decodes_2[j], CALL)) {
+    if(check_call(decodes_2[j], MYCALL)) {
       *decodes_2[j] = '\0'; // eliminate own call msgs on slave
       continue;
     }
@@ -320,6 +342,11 @@ int main(int argc, char **argv) {
     decodes_1[i] = (char *) malloc(sizeof(char) * 128);
     decodes_2[i] = (char *) malloc(sizeof(char) * 128);
   }
+
+#ifdef FILTER
+  void read_cty(char *);
+  read_cty(FILTER);
+#endif
 
 #ifdef DEBUG
     if((debug_fd = open("/home/eloranta/debug.txt", O_RDWR | O_CREAT, S_IRUSR | S_IWUSR)) < 0) exit(1);
