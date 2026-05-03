@@ -49,29 +49,6 @@
 
 #define JT9PATH "/usr/local/bin/jt9.x"  // Path to real jt9 program (jt9.x)
 
-/* 
- * We do not pass parameters form wsjtx gui to jt9. Instead we choose them manually here:
- *
- * -w # fftw plan mode (0-4; default 1)
- * -m # fftw threads (default 1)
- * -M   Use multi threaded ft8 decoder
- * -C # Number of cycles for multi threaded ft8 decoder (1-3; default 3)
- * -R # Multi threaded ft8 decoder RX freq sensitivity (1-3; default 3)
- * -N # Number of threads for multi threaded ft8 decoder (0-12; default 0 (auto))
- * -E # Multi threaded ft8 decoder sensitivity (1 - 3; default 3)
- * -D # Multi threaded ft8 decoder start (0 - 4; default 3)
- * -Z   Skip multi threaded ft8 decoder DX call search
- * -d # Decoding depth (1-3; default 1)  "number of decoding passes"
- * -X # Experience based decoding (default 0). 1 = true or 0 = false.
- *
- * TODO: Not clear if these are used over what JT9 gets from the shared memory (and WSJT-X).
- *       Shared memory structure is described in commons.h (struct dec_data).
- *
- */
-
-#define JT9OPTS "-w 1 -m 3 -M -N 0 -D 1 -d 3 -X 1 -C 3"
-//#define JT9OPTS "-w 1 -m 3"
-
 // #define COLLECT_STATS "/home/eloranta/stat.out" // Collect statistics of RX signal strengths
 // #define FILTER "/home/eloranta/cty.dat"  // cty file with prefixes to display (undefine to disable filtering)
 
@@ -330,7 +307,7 @@ int main(int argc, char **argv) {
     close(p1[0]);
     dup2(p1[1], 1);
     chdir(TEMP1);
-    sprintf(buf, "cp /usr/bin/ALLCALL7.TXT %s; %s -s %s %s", TEMP1, JT9PATH, SHM1, JT9OPTS);
+    sprintf(buf, "cp /usr/bin/ALLCALL7.TXT %s; %s -s %s", TEMP1, JT9PATH, SHM1);
     system(buf);
   }
   if(!(proc2 = fork())) {
@@ -339,7 +316,7 @@ int main(int argc, char **argv) {
     close(p2[0]);
     dup2(p2[1], 1);
     chdir(TEMP2);
-    sprintf(buf, "cp /usr/bin/ALLCALL7.TXT %s; %s -s %s %s", TEMP2, JT9PATH, SHM2, JT9OPTS);
+    sprintf(buf, "cp /usr/bin/ALLCALL7.TXT %s; %s -s %s", TEMP2, JT9PATH, SHM2);
     system(buf);
   }
   signal(SIGINT, cleanup);
