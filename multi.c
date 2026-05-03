@@ -64,6 +64,9 @@
  * -d # Decoding depth (1-3; default 1)  "number of decoding passes"
  * -X # Experience based decoding (default 0). 1 = true or 0 = false.
  *
+ * TODO: Not clear if these are used over what JT9 gets from the shared memory (and WSJT-X).
+ *       Shared memory structure is described in commons.h (struct dec_data).
+ *
  */
 
 #define JT9OPTS "-w 1 -m 3 -M -N 0 -D 1 -d 3 -X 1 -C 3"
