@@ -26,4 +26,4 @@ B! Only RX b received the signal (no signal on a)
 
 Observations
 
-This approach improved my low band decodes a lot. Just like regular diversity receive, it works best with two different types of receive antennas (arrival angle & polarization). It does require a fast computer - otherwise there will be missed decodes. These missed decodes appear as A! or B!, which can be mistakenly though of either of the RX not receiving the signal at all.
+This approach improved my low band decodes a lot. Just like regular diversity receive, it works best with two different types of receive antennas (arrival angle & polarization). It does require a fast computer - otherwise there will be missed decodes. These missed decodes appear as A! or B!, which can be mistakenly though of either of the RX not receiving the signal at all. The multithreaded decoder seems to be a bit unreliable, so keep that off in both WSJT-X instances (especially when comparing antennas).
