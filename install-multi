@@ -1,6 +1,8 @@
 #!/bin/bash
 #
 # Clone WSJT-X current installation under /usr to /usr/local and modify it to use multi
+# Use start-multi to start the two WSJT-X instances. See README.md for instructions how 
+# to set them up.
 #
 # This will work with: aur/wsjtx-improved, aur/wsjtx-git, and aur/wsjtx
 # If multiple wsjtx packages installed then this picks up wsjtx-improved
@@ -29,8 +31,9 @@ if [ "$package" == "" ]; then
 fi
 
 for file in `pacman -Ql $package | cut -d\  -f2`; do
-  echo install -D $file `echo $file | sed -e "s-/usr/-/usr/local/-g"`
+  install -D $file `echo $file | sed -e "s-/usr/-/usr/local/-g"`
 done
-echo mv /usr/local/bin/jt9 /usr/local/bin/jt9.x
-echo ln -s /usr/local/bin/multi /usr/local/bin/jt9
+mv /usr/local/bin/jt9 /usr/local/bin/jt9.x
+ln -s /usr/local/bin/multi /usr/local/bin/jt9
+install -D start-multi /usr/local/bin
 exit 0
