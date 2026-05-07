@@ -24,6 +24,8 @@
  *   /usr/local/bin. See Makefile install section and local-wsjtx script.
  * - Make sure that your computer is sufficiently fast - otherwise it will miss decodes.
  *   Here we have to do more than twice as much work as with normal WSJT-X.
+ * - We should place the relative signal info somewhere else than overwriting the mode column
+ *   (~ for FT8).
  *
  */
 
@@ -47,7 +49,7 @@
 #define SHM1 "WSJT-X"
 #define SHM2 "WSJT-X\\ -\\ 2"
 
-#define JT9PATH "/usr/local/bin/jt9.x"  // Path to real jt9 program (jt9.x)
+#define JT9PATH "/usr/local/bin/jt9.x"  // Path to the real jt9 program (jt9.x)
 
 // #define COLLECT_STATS "/home/eloranta/stat.out" // Collect statistics of RX signal strengths
 // #define FILTER "/home/eloranta/cty.dat"  // cty file with prefixes to display (undefine to disable filtering)
@@ -68,7 +70,7 @@
 
 #define MAX_DECODES 256
 
-// #define DEBUG
+// #define DEBUG          // open file for debug info
 
 #define MAX(a,b) (((a) > (b))?(a):(b))
 
@@ -270,7 +272,7 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
 
   // Still missing received on RX 1 but not on 2.
   for (i = 0; i < ndecodes1; i++)
-    if(*decodes_1[i] != '\0' && decodes_1[i][STAT_LOC] == '~') {
+    if(*decodes_1[i] != '\0' && decodes_1[i][STAT_LOC] == '~') { // ~ means still not processed
 #ifdef COLLECT_STATS
       sscanf(decodes_1[i], "%*d %d %*f %*d %*s %[^\n]", &rpt1, msg1);
       collect_stats(msg1, rpt1, NOT_HEARD_DB); // heard only on master
