@@ -272,7 +272,8 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
 
   // Still missing received on RX 1 but not on 2.
   for (i = 0; i < ndecodes1; i++)
-    if(*decodes_1[i] != '\0' && decodes_1[i][STAT_LOC] == '~') { // ~ means still not processed
+    if(*decodes_1[i] != '\0' && (decodes_1[i][STAT_LOC] == '~' || decodes_1[i][STAT_LOC] == '+')) {
+                                           // original mode means still not processed
 #ifdef COLLECT_STATS
       sscanf(decodes_1[i], "%*d %d %*f %*d %*s %[^\n]", &rpt1, msg1);
       collect_stats(msg1, rpt1, NOT_HEARD_DB); // heard only on master
