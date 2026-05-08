@@ -217,7 +217,7 @@ void get_call(char *msg, char *call) {
     strcpy(call, p3);
     return;
   }
-  /* CQ <call> <locator> or <to_call> <from_call> <msg> */
+  /* CQ <call> <locator> or <to_call> <from_call> <msg> -- does not deal with <> or ; */
   strcpy(call, p2);
   return;
 }
