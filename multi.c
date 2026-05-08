@@ -118,8 +118,8 @@ int filter(char *decode, char ign) { // when ign = 1, ignore msgs with ; and < (
 
   get_call(decode, buf);
   st = check_prefix(buf);
-  if(ign &&  st) return 1;
-  if(strchr(decode, ';') || strchr(decode, '<') || st) return 1;
+  if(ign && st) return 1;
+  if(!ign && (strchr(decode, ';') || strchr(decode, '<') || st)) return 1;
   return 0;
 }
 #endif
