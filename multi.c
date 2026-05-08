@@ -110,16 +110,19 @@ int getgmt() {
 
 #ifdef FILTER
 // Return 1 when decode passes filter, 0 when not
-int filter(char *decode, char ign) { // when ign = 1, ignore msgs with ; and < (for stats)
+int filter(char *decode, int ign) { // when ign = 1, ignore msgs with ; in it
 
   char buf[32];
   void get_call(char *, char *);
-  int check_prefix(char *), st;
+  int check_prefix(char *);
+  
+  if(strchr(decode, ';')) { // show special format msgs (mshv) - TODO
+    if(ign) return 0;
+    return 1;
+  }
 
   get_call(decode, buf);
-  st = check_prefix(buf);
-  if(ign && st) return 1;
-  if(!ign && (strchr(decode, ';') || strchr(decode, '<') || st)) return 1;
+  if(check_prefix(buf)) return 1;
   return 0;
 }
 #endif
@@ -209,16 +212,25 @@ int show_decodes(char *decodes[], int ndecodes) {
 void get_call(char *msg, char *call) {
 
   char p1[32], p2[32], p3[32], p4[32];
+  int l;
 
   p1[0] = p2[0] = p3[0] = p4[0] = '\0';
   sscanf(msg, "%*d %*d %*f %*d %*s %s %s %s %s", p1, p2, p3, p4);
   /* CQ XX <call> <locator> */
   if(!strcmp(p1, "CQ") && p4[0] != '\0') {
-    strcpy(call, p3);
+    if(p3[0] == '<') {
+      l = strlen(p3);
+      strncpy(call, p3+1, l-2);
+      call[l-2] = '\0';
+    } else strcpy(call, p3);
     return;
   }
-  /* CQ <call> <locator> or <to_call> <from_call> <msg> -- does not deal with <> or ; */
-  strcpy(call, p2);
+  /* CQ <from_call> <locator> or <to_call> <from_call> <msg> -- does not deal with <> or ; */
+  if(p2[0] == '<') {
+    l = strlen(p2);
+    strncpy(call, p2+1, l-2);
+    call[l-2] = '\0';
+  } else strcpy(call, p2);
   return;
 }
 
