@@ -107,11 +107,6 @@ int getgmt() {
   return atoi(buf);
 }
 
-void add_id(char *str, char id) {
-
-  str[STAT_LOC] = id;
-}
-
 void read_line(int fd, char *buf) {
 
   int i, st, l;
@@ -242,21 +237,21 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
       if(*decodes_1[i] == '\0') continue;
       sscanf(decodes_1[i], "%*d %d %*f %*d %*s %[^\n]", &rpt1, msg1);
       if((ptr = strstr(msg1, "     "))) *ptr = '\0';
-      if(!strcmp(msg1, msg2)) {
+      if(!strcmp(msg1, msg2)) { // There is of course a chance that there is <> or other things present and this fails
 #ifdef COLLECT_STATS
         collect_stats(msg1, rpt1, rpt2);
 #endif
         if(rpt1 > rpt2 && abs(rpt1-rpt2) >= EQUAL_THR) {
-          *decodes_2[j] = '\0'; // i stronger
+          *decodes_2[j] = '\0'; // i stronger, eliminate j
           if(abs(rpt1 - rpt2) >= UPCASE_THR) decodes_1[i][STAT_LOC] = 'A';
           else decodes_1[i][STAT_LOC] = 'a';
         } else if(rpt1 < rpt2 && abs(rpt1-rpt2) >= EQUAL_THR) {
-          *decodes_1[i] = '\0'; // j stronger
+          *decodes_1[i] = '\0'; // j stronger, eliminate i
           if(abs(rpt1 - rpt2) >= UPCASE_THR) decodes_2[j][STAT_LOC] = 'B';
           else decodes_2[j][STAT_LOC] = 'b';
         } else {
           *decodes_1[i] = '\0';
-          add_id(decodes_2[j], '=');  // indicate that a and b were equally strong
+          decodes_2[j][STAT_LOC] = '=';  // indicate that a and b were equally strong
         }
         break;
       }
