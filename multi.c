@@ -51,8 +51,9 @@
 
 #define JT9PATH "/usr/local/bin/jt9.x"  // Path to the real jt9 program (jt9.x)
 
-// #define COLLECT_STATS "/home/eloranta/stat.out" // Collect statistics of RX signal strengths
-// #define FILTER "/home/eloranta/cty.dat"  // cty file with prefixes to display (undefine to disable filtering)
+#define COLLECT_STATS "/home/eloranta/stat.out" // Collect statistics of RX signal strengths
+#define FILTER "/home/eloranta/cty.dat"  // cty file with prefixes to display (undefine to disable filtering)
+#define CONTINENT "EU"                   // NULL = all continents or "NA", "EU", "OC", "AF", etc.
 
 #define NOT_HEARD_DB (-26)   // If not heard, use this value for dB in stats
 
@@ -106,6 +107,22 @@ int getgmt() {
   strftime(buf, sizeof(buf), "%H%M%S", gmt);
   return atoi(buf);
 }
+
+#ifdef FILTER
+// Return 1 when decode passes filter, 0 when not
+int filter(char *decode, char ign) { // when ign = 1, ignore msgs with ; and < (for stats)
+
+  char buf[32];
+  void get_call(char *, char *);
+  int check_prefix(char *), st;
+
+  get_call(decode, buf);
+  st = check_prefix(buf);
+  if(ign &&  st) return 1;
+  if(strchr(decode, ';') || strchr(decode, '<') || st) return 1;
+  return 0;
+}
+#endif
 
 void read_line(int fd, char *buf) {
 
@@ -176,17 +193,11 @@ void get_decodes(int fd1, int fd2, char *decodes1[], char *decodes2[], int *nd1,
 int show_decodes(char *decodes[], int ndecodes) {
 
   int i, d = 0;
-#ifdef FILTER
-  char buf[32];
-  void get_call(char *, char *);
-  int check_prefix(char *);
-#endif
 
   for(i = 0; i < ndecodes; i++)
     if(*decodes[i] != '\0') {
 #ifdef FILTER
-      get_call(decodes[i], buf);
-      if(strchr(decodes[i], ';') || strchr(decodes[i], '<') || check_prefix(buf)) // make sure to show MSHV messages with ; in them or <call>
+      if(filter(decodes[i], 0))
 #endif
         write(1, decodes[i], strlen(decodes[i]));
       d++;
@@ -239,7 +250,8 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
       if((ptr = strstr(msg1, "     "))) *ptr = '\0';
       if(!strcmp(msg1, msg2)) { // There is of course a chance that there is <> or other things present and this fails
 #ifdef COLLECT_STATS
-        collect_stats(msg1, rpt1, rpt2);
+        if(filter(decodes_1[i], 1))
+          collect_stats(msg1, rpt1, rpt2);
 #endif
         if(rpt1 > rpt2 && abs(rpt1-rpt2) >= EQUAL_THR) {
           *decodes_2[j] = '\0'; // i stronger, eliminate j
@@ -258,7 +270,8 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
     }
     if(i == ndecodes1) {
 #ifdef COLLECT_STATS
-      collect_stats(msg2, NOT_HEARD_DB, rpt2); // head only on slave
+      if(filter(decodes_2[j], 1))
+        collect_stats(msg2, NOT_HEARD_DB, rpt2); // head only on slave
 #endif
       decodes_2[j][STAT_LOC] = 'B'; // the other RX did not receive
       decodes_2[j][STAT_LOC+1] = '!';
@@ -270,8 +283,10 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
     if(*decodes_1[i] != '\0' && (decodes_1[i][STAT_LOC] == '~' || decodes_1[i][STAT_LOC] == '+')) {
                                            // original mode present means still not processed
 #ifdef COLLECT_STATS
-      sscanf(decodes_1[i], "%*d %d %*f %*d %*s %[^\n]", &rpt1, msg1);
-      collect_stats(msg1, rpt1, NOT_HEARD_DB); // heard only on master
+      if(filter(decodes_1[i], 1)) {
+        sscanf(decodes_1[i], "%*d %d %*f %*d %*s %[^\n]", &rpt1, msg1);
+        collect_stats(msg1, rpt1, NOT_HEARD_DB); // heard only on master
+      }
 #endif
       decodes_1[i][STAT_LOC] = 'A';
       decodes_1[i][STAT_LOC+1] = '!';
@@ -325,8 +340,8 @@ int main(int argc, char **argv) {
   }
 
 #ifdef FILTER
-  void read_cty(char *);
-  read_cty(FILTER);
+  void read_cty(char *, char *);
+  read_cty(FILTER, CONTINENT);
 #endif
 
 #ifdef DEBUG

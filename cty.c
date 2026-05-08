@@ -13,11 +13,11 @@
 char prefixes[MAX_PREFIX][MAX_PREFLEN];
 int nprefixes = 0;
 
-void read_cty(char *file) {
+void read_cty(char *file, char *ct) { // ct = continent (EU, NA...) or NULL for everything
 
   FILE *fp;
-  char buf[512];
-  int i, j, prev_j, state = 0;
+  char buf[512], continent[32];
+  int i, j, prev_j, state = 0, pass = 0;
 
   if(!(fp = fopen(file, "r"))) {
 //    fprintf(stderr, "Can't open %s.\n", file);
@@ -29,7 +29,7 @@ void read_cty(char *file) {
     prev_j = 0;
     switch(state) {
     case 0:
-      // no relevant info on this line
+      sscanf(buf, "%*[^:]: %*[^:]: %*[^:]: %[^:]", continent);
       state = 1;
       break;
    case 1:
@@ -43,10 +43,12 @@ void read_cty(char *file) {
 //            fprintf(stderr, "Increase MAX_PREFIX.\n");
             exit(1);
           }
-          strncpy(prefixes[nprefixes], &buf[prev_j], j - prev_j);
-          prefixes[nprefixes][j - prev_j + 1] = '\0';
-//          printf("%d %s\n", nprefixes, prefixes[nprefixes]);fflush(stdout);
-          nprefixes++;
+          if(!ct || !strcmp(ct, continent)) {
+            strncpy(prefixes[nprefixes], &buf[prev_j], j - prev_j);
+            prefixes[nprefixes][j - prev_j + 1] = '\0';
+//            printf("%d %s\n", nprefixes, prefixes[nprefixes]);fflush(stdout);
+            nprefixes++;
+          }
           if(buf[j] == '(') {
             for ( ; buf[j] != ')'; j++);
             j++;
