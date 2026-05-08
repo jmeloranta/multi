@@ -51,8 +51,8 @@
 
 #define JT9PATH "/usr/local/bin/jt9.x"  // Path to the real jt9 program (jt9.x)
 
-#define COLLECT_STATS "/home/eloranta/stat.out" // Collect statistics of RX signal strengths
-#define FILTER "/home/eloranta/cty.dat"  // cty file with prefixes to display (undefine to disable filtering)
+// #define COLLECT_STATS "/home/eloranta/stat.out" // Collect statistics of RX signal strengths
+// #define FILTER "/home/eloranta/cty.dat"  // cty file with prefixes to display (undefine to disable filtering)
 #define CONTINENT "EU"                   // NULL = all continents or "NA", "EU", "OC", "AF", etc.
 
 #define NOT_HEARD_DB (-26)   // If not heard, use this value for dB in stats
