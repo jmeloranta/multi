@@ -13,12 +13,12 @@
  *        indicate that the difference was more than 8 dB. Also if only one RX decoded
  *        the message, it will be in uppercase with ! added after it.
  *
- * When performing RX antenna comparisons (COLLECT STATS), be sure to be on band that does not have too 
- * many stations. Timing is critical here and it is possible that we miss late decodes because we need 
+ * When performing RX antenna comparisons (COLLECT_STATS environment variable), be sure to be on band that does 
+ * not have too many stations. Timing is critical here and it is possible that we miss late decodes because we need 
  * to stay within the 2 sec time tolerance.
  *
  * NOTES: 
- * - This works only with FT8.
+ * - This works only with FT8 and possibly with FT4.
  * - Filtering in wsjt-x improved does not work for some reason. So keep the filters disabled.
  * - I recommend keeping this separate from your standard WSJT-X program and install this under
  *   /usr/local/bin. See Makefile install section and local-wsjtx script.
@@ -26,6 +26,13 @@
  *   Here we have to do more than twice as much work as with normal WSJT-X.
  * - We should place the relative signal info somewhere else than overwriting the mode column
  *   (~ for FT8).
+ *
+ * Environmental variables (set in start-multi script):
+ *
+ * MYCALL         My callsign (must be set)
+ * COLLECT_STATS  File for collecting statistics
+ * FILTER         CTY format filter file - all prefixes in this file will be shown
+ * CONTINENT      Apply continent filter to CTY file
  *
  */
 
@@ -42,18 +49,16 @@
 #include <time.h>
 
 /* Your call sign (uppercase) - used to exclude your own transmission from slave WSJT-X */
-#define MYCALL "AA6KJ"
+char mycall[16];
 
-/* Share memory segment names (from running two separate WSJT-X's), second started with "wsjtx -r 2" */
-
+/* Shared memory segment names (from running two separate WSJT-X's), second started with "wsjtx -r 2" */
 #define SHM1 "WSJT-X"
 #define SHM2 "WSJT-X\\ -\\ 2"
-
 #define JT9PATH "/usr/local/bin/jt9.x"  // Path to the real jt9 program (jt9.x)
 
-// #define COLLECT_STATS "/home/eloranta/stat.out" // Collect statistics of RX signal strengths
-// #define FILTER "/home/eloranta/cty.dat"  // cty file with prefixes to display (undefine to disable filtering)
-#define CONTINENT "EU"                   // NULL = all continents or "NA", "EU", "OC", "AF", etc.
+char collect_stats[256]; // File name for storing statistics
+char filter_file[256];        // CTY filter file
+char continent[16];      // Continent for filtering (must match CTY format)
 
 #define NOT_HEARD_DB (-26)   // If not heard, use this value for dB in stats
 
@@ -79,15 +84,11 @@ pid_t proc1, proc2;
 #ifdef DEBUG
 int debug_fd = -1;
 #endif
-#ifdef COLLECT_STATS
 int stat_fd = -1;
-#endif
 
 void cleanup(int x) {
 
-#ifdef COLLECT_STATS
-  close(stat_fd);
-#endif
+  if(stat_fd != -1) close(stat_fd);
 #ifdef DEBUG
   close(debug_fd);
 #endif
@@ -108,7 +109,6 @@ int getgmt() {
   return atoi(buf);
 }
 
-#ifdef FILTER
 // Return 1 when decode passes filter, 0 when not
 int filter(char *decode, int ign) { // when ign = 1, ignore msgs with ; in it
 
@@ -121,11 +121,12 @@ int filter(char *decode, int ign) { // when ign = 1, ignore msgs with ; in it
     return 1;
   }
 
+  if(*filter_file == '\0') return 1; // filter not active
+
   get_call(decode, buf);
   if(check_prefix(buf)) return 1;
   return 0;
 }
-#endif
 
 void read_line(int fd, char *buf) {
 
@@ -138,15 +139,14 @@ void read_line(int fd, char *buf) {
   buf[i+1] = '\0';
 }
 
-#ifdef COLLECT_STATS
-void collect_stats(char *msg, int rpt1, int rpt2) {
+void collect_stats_func(char *msg, int rpt1, int rpt2) {
 
   char *err = "Error opening stat file.\n";
   char buf[128];
 
   if(stat_fd == -1) {
-    unlink(COLLECT_STATS);
-    if((stat_fd = open(COLLECT_STATS, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR)) < 0) {
+    unlink(collect_stats);
+    if((stat_fd = open(collect_stats, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR)) < 0) {
       write(2, err, strlen(err));
       exit(0);
     }
@@ -157,7 +157,6 @@ void collect_stats(char *msg, int rpt1, int rpt2) {
   sprintf(buf, "%d %d\n", rpt1, rpt2);
   write(stat_fd, buf, strlen(buf));
 }
-#endif
 
 void get_decodes(int fd1, int fd2, char *decodes1[], char *decodes2[], int *nd1, int *nd2) {
 
@@ -199,9 +198,7 @@ int show_decodes(char *decodes[], int ndecodes) {
 
   for(i = 0; i < ndecodes; i++)
     if(*decodes[i] != '\0') {
-#ifdef FILTER
       if(filter(decodes[i], 0))
-#endif
         write(1, decodes[i], strlen(decodes[i]));
       d++;
     }
@@ -250,7 +247,7 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
 
   // decodes_1 is RX a and decodes_2 RX b
   for (j = 0; j < ndecodes2; j++) { // loop over RX 2 (slave)
-    if(check_call(decodes_2[j], MYCALL)) {
+    if(check_call(decodes_2[j], mycall)) {
       *decodes_2[j] = '\0'; // eliminate own call msgs on slave
       continue;
     }
@@ -261,10 +258,8 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
       sscanf(decodes_1[i], "%*d %d %*f %*d %*s %[^\n]", &rpt1, msg1);
       if((ptr = strstr(msg1, "     "))) *ptr = '\0';
       if(!strcmp(msg1, msg2)) { // There is of course a chance that there is <> or other things present and this fails
-#ifdef COLLECT_STATS
-        if(filter(decodes_1[i], 1))
-          collect_stats(msg1, rpt1, rpt2);
-#endif
+        if(*collect_stats != '\0' && filter(decodes_1[i], 1))
+          collect_stats_func(msg1, rpt1, rpt2);
         if(rpt1 > rpt2 && abs(rpt1-rpt2) >= EQUAL_THR) {
           *decodes_2[j] = '\0'; // i stronger, eliminate j
           if(abs(rpt1 - rpt2) >= UPCASE_THR) decodes_1[i][STAT_LOC] = 'A';
@@ -281,10 +276,8 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
       }
     }
     if(i == ndecodes1) {
-#ifdef COLLECT_STATS
-      if(filter(decodes_2[j], 1))
-        collect_stats(msg2, NOT_HEARD_DB, rpt2); // head only on slave
-#endif
+      if(*collect_stats != '\0' && filter(decodes_2[j], 1))
+        collect_stats_func(msg2, NOT_HEARD_DB, rpt2); // head only on slave
       decodes_2[j][STAT_LOC] = 'B'; // the other RX did not receive
       decodes_2[j][STAT_LOC+1] = '!';
     }
@@ -294,12 +287,10 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
   for (i = 0; i < ndecodes1; i++)
     if(*decodes_1[i] != '\0' && (decodes_1[i][STAT_LOC] == '~' || decodes_1[i][STAT_LOC] == '+')) {
                                            // original mode present means still not processed
-#ifdef COLLECT_STATS
-      if(filter(decodes_1[i], 1)) {
+      if(*collect_stats != '\0' && filter(decodes_1[i], 1)) {
         sscanf(decodes_1[i], "%*d %d %*f %*d %*s %[^\n]", &rpt1, msg1);
-        collect_stats(msg1, rpt1, NOT_HEARD_DB); // heard only on master
+        collect_stats_func(msg1, rpt1, NOT_HEARD_DB); // heard only on master
       }
-#endif
       decodes_1[i][STAT_LOC] = 'A';
       decodes_1[i][STAT_LOC+1] = '!';
     }
@@ -309,8 +300,19 @@ int main(int argc, char **argv) {
 
   int p1[2], p2[2], sync_time = -1, i;
   char buf[512];
-  char *decodes_1[MAX_DECODES], *decodes_2[MAX_DECODES];
+  char *decodes_1[MAX_DECODES], *decodes_2[MAX_DECODES], *tmp;
   int ndecodes1, ndecodes2;
+  void read_cty(char *, char *);
+
+  // Get parameters from environmental variables
+  if(!(tmp = getenv("MYCALL"))) exit(1);
+  strcpy(mycall, tmp);
+  if(!(tmp = getenv("COLLECT_STATS"))) collect_stats[0] = '\0';
+  else strcpy(collect_stats, tmp);
+  if(!(tmp = getenv("FILTER"))) filter_file[0] = '\0';
+  else strcpy(filter_file, tmp);
+  if(!(tmp = getenv("CONTINENT"))) continent[0] = '\0';
+  else strcpy(continent, tmp);
 
   if(!strncmp(argv[2], "WSJT-X - 2", 10)) {
     while(1) sleep(100); // do nothing - 2nd wsjt-x instance can be just minimized & ignored
@@ -351,10 +353,7 @@ int main(int argc, char **argv) {
     decodes_2[i] = (char *) malloc(sizeof(char) * 128);
   }
 
-#ifdef FILTER
-  void read_cty(char *, char *);
-  read_cty(FILTER, CONTINENT);
-#endif
+  if(*filter_file != '\0') read_cty(filter_file, *continent == '\0'?NULL:continent);
 
 #ifdef DEBUG
     if((debug_fd = open("/home/eloranta/debug.txt", O_RDWR | O_CREAT, S_IRUSR | S_IWUSR)) < 0) exit(1);
