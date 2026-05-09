@@ -1,0 +1,12 @@
+void cleanup(int);
+int getgmt();
+int filter(char *, int);
+void read_line(int, char *);
+void collect_stats_func(char *, int, int);
+void get_decodes(int, int, char *[], char *[], int *, int *);
+int show_decodes(char *[], int);
+void get_call(char *, char *);
+int check_call(char *, char *);
+void proc_decodes(char *[], int, char *[], int);
+void read_cty(char *, char *);
+int check_prefix(char *);

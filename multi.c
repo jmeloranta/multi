@@ -9,7 +9,7 @@
  * This program replaces the standard jt9 and the original becomes jt9.x. This this program acts as a middle man
  * between WSJT-X GUI and jt9 decoder.
  * 
- * Mode ~ is replaced by a (RX a), b (RX b), A, B depending on which RX had better SNR. The uppercase letters
+ * Mode ~ (or +) is replaced by a (RX a), b (RX b), A, B depending on which RX had better SNR. The uppercase letters
  *        indicate that the difference was more than 8 dB. Also if only one RX decoded
  *        the message, it will be in uppercase with ! added after it.
  *
@@ -31,8 +31,8 @@
  *
  * MYCALL         My callsign (must be set)
  * COLLECT_STATS  File for collecting statistics
- * FILTER         CTY format filter file - all prefixes in this file will be shown
- * CONTINENT      Apply continent filter to CTY file
+ * FILTER         CTY format filter file - all prefixes present in this file will be shown
+ * CONTINENT      Apply continent filter to CTY file (EU, OC, AF, etc.)
  *
  */
 
@@ -47,8 +47,9 @@
 #include <sys/stat.h>
 #include <sys/select.h>
 #include <time.h>
+#include "multi.h"
 
-/* Your call sign (uppercase) - used to exclude your own transmission from slave WSJT-X */
+/* Your call sign - used to exclude your own transmission from slave WSJT-X */
 char mycall[16];
 
 /* Shared memory segment names (from running two separate WSJT-X's), second started with "wsjtx -r 2" */
@@ -57,7 +58,7 @@ char mycall[16];
 #define JT9PATH "/usr/local/bin/jt9.x"  // Path to the real jt9 program (jt9.x)
 
 char collect_stats[256]; // File name for storing statistics
-char filter_file[256];        // CTY filter file
+char filter_file[256];   // CTY filter file
 char continent[16];      // Continent for filtering (must match CTY format)
 
 #define NOT_HEARD_DB (-26)   // If not heard, use this value for dB in stats
@@ -81,16 +82,17 @@ char continent[16];      // Continent for filtering (must match CTY format)
 #define MAX(a,b) (((a) > (b))?(a):(b))
 
 pid_t proc1, proc2;
+int stat_fd = -1;
+
 #ifdef DEBUG
 int debug_fd = -1;
 #endif
-int stat_fd = -1;
 
 void cleanup(int x) {
 
   if(stat_fd != -1) close(stat_fd);
 #ifdef DEBUG
-  close(debug_fd);
+  if(debug_fd != -1) close(debug_fd);
 #endif
   kill(proc1, SIGKILL);
   kill(proc2, SIGKILL);
@@ -109,12 +111,10 @@ int getgmt() {
   return atoi(buf);
 }
 
-// Return 1 when decode passes filter, 0 when not
+// Return 1 when decode passes filter, 0 if not
 int filter(char *decode, int ign) { // when ign = 1, ignore msgs with ; in it
 
   char buf[32];
-  void get_call(char *, char *);
-  int check_prefix(char *);
   
   if(strchr(decode, ';')) { // show special format msgs (mshv) - TODO
     if(ign) return 0;
