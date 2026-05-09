@@ -18,7 +18,7 @@
  * to stay within the 2 sec time tolerance.
  *
  * NOTES: 
- * - This works only with FT8 and possibly with FT4.
+ * - This works only with FT8.
  * - Filtering in wsjt-x improved does not work for some reason. So keep the filters disabled.
  * - I recommend keeping this separate from your standard WSJT-X program and install this under
  *   /usr/local/bin. See Makefile install section and local-wsjtx script.
@@ -62,7 +62,6 @@ char filter_file[256];   // CTY filter file
 char continent[16];      // Continent for filtering (must match CTY format)
 
 #define NOT_HEARD_DB (-26)   // If not heard, use this value for dB in stats
-
 #define STAT_LOC 21       // Character location in decode where to add the source
 #define EQUAL_THR  2      // Equal signal strength threshold (=)
 #define UPCASE_THR 8      // Uppercase thershold for strength reporting (a vs. A and b vs. B)
@@ -77,7 +76,7 @@ char continent[16];      // Continent for filtering (must match CTY format)
 
 #define MAX_DECODES 256
 
-// #define DEBUG          // open file for debug info
+// #define DEBUG "/tmp/debug.txt"         // open file for debug info
 
 #define MAX(a,b) (((a) > (b))?(a):(b))
 
@@ -96,7 +95,7 @@ void cleanup(int x) {
 #endif
   kill(proc1, SIGKILL);
   kill(proc2, SIGKILL);
-  exit(0); // will also automatically free *decodes[]
+  exit(0);
 }
 
 int getgmt() {
@@ -116,12 +115,12 @@ int filter(char *decode, int ign) { // when ign = 1, ignore msgs with ; in it
 
   char buf[32];
   
+  if(*filter_file == '\0') return 1; // filter not active
+
   if(strchr(decode, ';')) { // show special format msgs (mshv) - TODO
     if(ign) return 0;
     return 1;
   }
-
-  if(*filter_file == '\0') return 1; // filter not active
 
   get_call(decode, buf);
   if(check_prefix(buf)) return 1;
@@ -166,6 +165,7 @@ void get_decodes(int fd1, int fd2, char *decodes1[], char *decodes2[], int *nd1,
 
   *nd1 = *nd2 = 0;
   ct = getgmt();
+
   while(1) {
     FD_ZERO(&fds);
     FD_SET(fd1, &fds);
@@ -215,14 +215,14 @@ void get_call(char *msg, char *call) {
   sscanf(msg, "%*d %*d %*f %*d %*s %s %s %s %s", p1, p2, p3, p4);
   /* CQ XX <call> <locator> */
   if(!strcmp(p1, "CQ") && p4[0] != '\0') {
-    if(p3[0] == '<') {
+    if(p3[0] == '<') { // Remove angular brackets
       l = strlen(p3);
       strncpy(call, p3+1, l-2);
       call[l-2] = '\0';
     } else strcpy(call, p3);
     return;
   }
-  /* CQ <from_call> <locator> or <to_call> <from_call> <msg> -- does not deal with <> or ; */
+  /* CQ <from_call> <locator> or <to_call> <from_call> <msg> -- does not deal with long mshv responses */
   if(p2[0] == '<') {
     l = strlen(p2);
     strncpy(call, p2+1, l-2);
@@ -237,7 +237,7 @@ int check_call(char *msg, char *call) {
 
   get_call(msg, buf);
   if(!strcmp(buf, call)) return 1;
-  else return 0;
+  return 0;
 }
 
 void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndecodes2) {
@@ -285,7 +285,7 @@ void proc_decodes(char *decodes_1[], int ndecodes1, char *decodes_2[], int ndeco
 
   // Still missing received on RX 1 but not on 2.
   for (i = 0; i < ndecodes1; i++)
-    if(*decodes_1[i] != '\0' && (decodes_1[i][STAT_LOC] == '~' || decodes_1[i][STAT_LOC] == '+')) {
+    if(*decodes_1[i] != '\0' && decodes_1[i][STAT_LOC] == '~') {
                                            // original mode present means still not processed
       if(*collect_stats != '\0' && filter(decodes_1[i], 1)) {
         sscanf(decodes_1[i], "%*d %d %*f %*d %*s %[^\n]", &rpt1, msg1);
@@ -302,7 +302,6 @@ int main(int argc, char **argv) {
   char buf[512];
   char *decodes_1[MAX_DECODES], *decodes_2[MAX_DECODES], *tmp;
   int ndecodes1, ndecodes2;
-  void read_cty(char *, char *);
 
   // Get parameters from environmental variables
   if(!(tmp = getenv("MYCALL"))) exit(1);
@@ -328,7 +327,6 @@ int main(int argc, char **argv) {
 
   sleep(START_WAIT);
   if(!(proc1 = fork())) {
-    char buf[128];
     close(p2[0]);
     close(p2[1]);
     close(p1[0]);
@@ -356,7 +354,7 @@ int main(int argc, char **argv) {
   if(*filter_file != '\0') read_cty(filter_file, *continent == '\0'?NULL:continent);
 
 #ifdef DEBUG
-    if((debug_fd = open("/home/eloranta/debug.txt", O_RDWR | O_CREAT, S_IRUSR | S_IWUSR)) < 0) exit(1);
+    if((debug_fd = open(DEBUG, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR)) < 0) exit(1);
 #endif
 
   while(1) {

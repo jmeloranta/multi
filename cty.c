@@ -1,5 +1,5 @@
 /*
- * Since WSJT-X improved filtering does not work with multi, we can do our own.
+ * CTY file processing.
  *
  */
 
