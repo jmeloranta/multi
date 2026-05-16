@@ -30,5 +30,5 @@ This approach improved my low band decodes a lot. Just like regular diversity re
 
 PROBLEM
 
-Something has changed recently. Running the two WSJT-X instances for the stereo channels does not produce identical decodes. So, right now things do not work properly!
+There was earlier but I had accidentally "decode after EME delay" set (in one JT9 instance only).
 
