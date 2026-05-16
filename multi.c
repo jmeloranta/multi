@@ -70,7 +70,8 @@ char continent[16];      // Continent for filtering (must match CTY format)
 #define TEMP2 "/tmp/proc2"
 
 #define START_WAIT   1    // Wait time before start jt9.x processes (helps avoid timing issue at the start)
-#define PROCESS_SYNC 2    // 2 seconds for letting the other jt9 process to finish.
+#define PROCESS_SYNC_S  2 // 2.36 seconds for letting the other jt9 process to finish (sec).
+#define PROCESS_SYNC_US 360000 // Microsec.
                           // Making this longer is good for late decodes but then we might be late in TX
 #define FT8_PERIOD   15   // FT8 period (15 s)
 
@@ -170,8 +171,8 @@ void get_decodes(int fd1, int fd2, char *decodes1[], char *decodes2[], int *nd1,
     FD_ZERO(&fds);
     FD_SET(fd1, &fds);
     FD_SET(fd2, &fds);
-    tv.tv_sec = PROCESS_SYNC;
-    tv.tv_usec = 0;
+    tv.tv_sec = PROCESS_SYNC_S;
+    tv.tv_usec = PROCESS_SYNC_US;
     if(!select(MAX(fd1,fd2)+1, &fds, NULL, NULL, &tv)) break;
     if(FD_ISSET(fd1, &fds)) {
       while(1) {
