@@ -26,4 +26,9 @@ B! Only RX b received the signal (no signal on a)
 
 Observations
 
-This approach improved my low band decodes a lot. Just like regular diversity receive, it works best with two different types of receive antennas (arrival angle & polarization). It does require a fast computer - otherwise there will be missed decodes. These missed decodes appear as A! or B!, which can be mistakenly though of either of the RX not receiving the signal at all. The multithreaded decoder seems to be a bit unreliable, so keep that off in both WSJT-X instances (especially when comparing antennas). Multi threaded decoder seems to behave somewhat erratic - so disable it for both WSJT-X instances.
+This approach improved my low band decodes a lot. Just like regular diversity receive, it works best with two different types of receive antennas (arrival angle & polarization). It does require a fast computer - otherwise there will be missed decodes. These missed decodes appear as A! or B!, which can be mistakenly though of either of the RX not receiving the signal at all. The multithreaded decoder seems to be a bit unreliable, so keep that off in both WSJT-X instances (especially when comparing antennas). Multi threaded decoder seems to behave somewhat erratic - so disable it for both WSJT-X instances. There are still some strange things going on with JT9: under some circumstances it gives different decodes although given the same input data. Although some of these issues are related to using <...> where one JT9 process uses them but the other not.
+
+PROBLEM
+
+Something has changed recently. Running the two WSJT-X instances for the stereo channels does not produce identical decodes. So, right now things do not work properly!
+
