@@ -333,8 +333,8 @@ int main(int argc, char **argv) {
   else strcpy(filter_file, tmp);
   if(!(tmp = getenv("CONTINENT"))) continent[0] = '\0';
   else strcpy(continent, tmp);
-  if(!(tmp = getenv("PASS_THROUGH"))) pass_through = 0;
-  else pass_through = 1;
+  if(!(tmp = getenv("PASS_THROUGH"))) pass_through = 1;
+  else pass_through = 0;
 
   if(!strncmp(argv[2], "WSJT-X - 2", 10)) {
     while(1) sleep(100); // do nothing - 2nd wsjt-x instance can be just minimized & ignored
