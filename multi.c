@@ -187,7 +187,7 @@ void get_decodes(int fd1, int fd2, char *decodes1[], char *decodes2[], int *nd1,
         }
         continue;
       }
-      while(1) {  // could drop while here
+      while(1) {  // could drop while here?
         read_line(fd1, decodes1[*nd1]);
         if(sscanf(decodes1[*nd1], " %d", &dt) == 1 && ct - dt >= FT8_PERIOD) continue; // old late decode data, skip
         if(!strncmp(decodes1[*nd1], "<DecodeFinished>", 16)) break;
@@ -203,7 +203,7 @@ void get_decodes(int fd1, int fd2, char *decodes1[], char *decodes2[], int *nd1,
         }
         continue;
       }
-      while(1) {  // could drop while here
+      while(1) {  // could drop while here?
         read_line(fd2, decodes2[*nd2]);
         if(sscanf(decodes2[*nd2], " %d", &dt) == 1 && ct - dt >= FT8_PERIOD) continue; // old late decode data, skip
         if(!strncmp(decodes2[*nd2], "<DecodeFinished>", 16)) break;
@@ -333,8 +333,8 @@ int main(int argc, char **argv) {
   else strcpy(filter_file, tmp);
   if(!(tmp = getenv("CONTINENT"))) continent[0] = '\0';
   else strcpy(continent, tmp);
-  if(!(tmp = getenv("PASS_THROUGH"))) pass_through = 1;
-  else pass_through = 0;
+  if(!(tmp = getenv("PASS_THROUGH"))) pass_through = 0;
+  else pass_through = 1;
 
   if(!strncmp(argv[2], "WSJT-X - 2", 10)) {
     while(1) sleep(100); // do nothing - 2nd wsjt-x instance can be just minimized & ignored
