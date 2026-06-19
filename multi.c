@@ -34,7 +34,7 @@
  * FILTER         CTY format filter file - all prefixes present in this file will be shown
  * CONTINENT      Apply continent filter to CTY file (EU, OC, AF, etc.)
  * PASS_THROUGH   Pass through mode. Do not process decodes - just pass them directly to WSJT-X
- *                WSJT-X will get multiple decodes but it will remove them. This will not retain
+ *                WSJT-X will get multiple decodes. This will not necessarily use
  *                the decode with best report but will work more robustly for running QSOs
  *                especially on busy band.
  *
