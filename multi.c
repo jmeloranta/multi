@@ -33,6 +33,10 @@
  * COLLECT_STATS  File for collecting statistics
  * FILTER         CTY format filter file - all prefixes present in this file will be shown
  * CONTINENT      Apply continent filter to CTY file (EU, OC, AF, etc.)
+ * PASS_THROUGH   Pass through mode. Do not process decodes - just pass them directly to WSJT-X
+ *                WSJT-X will get multiple decodes but it will remove them. This will not retain
+ *                the decode with best report but will work more robustly for running QSOs
+ *                especially on busy band.
  *
  */
 
@@ -82,7 +86,7 @@ char continent[16];      // Continent for filtering (must match CTY format)
 #define MAX(a,b) (((a) > (b))?(a):(b))
 
 pid_t proc1, proc2;
-int stat_fd = -1;
+int stat_fd = -1, pass_through = 0;
 
 #ifdef DEBUG
 int debug_fd = -1;
@@ -175,7 +179,15 @@ void get_decodes(int fd1, int fd2, char *decodes1[], char *decodes2[], int *nd1,
     tv.tv_usec = PROCESS_SYNC_US;
     if(!select(MAX(fd1,fd2)+1, &fds, NULL, NULL, &tv)) break;
     if(FD_ISSET(fd1, &fds)) {
-      while(1) {
+      if(pass_through) {
+        while(1) {
+          read_line(fd1, decodes1[0]);
+          write(1, decodes1[0], strlen(decodes1[0]));
+          if(!strncmp(decodes1[0], "<DecodeFinished>", 16)) break;
+        }
+        continue;
+      }
+      while(1) {  // could drop while here
         read_line(fd1, decodes1[*nd1]);
         if(sscanf(decodes1[*nd1], " %d", &dt) == 1 && ct - dt >= FT8_PERIOD) continue; // old late decode data, skip
         if(!strncmp(decodes1[*nd1], "<DecodeFinished>", 16)) break;
@@ -183,7 +195,15 @@ void get_decodes(int fd1, int fd2, char *decodes1[], char *decodes2[], int *nd1,
       }
     }
     if(FD_ISSET(fd2, &fds)) {
-      while(1) {
+      if(pass_through) {
+        while(1) {
+          read_line(fd2, decodes2[0]);
+          write(1, decodes2[0], strlen(decodes2[0]));
+          if(!strncmp(decodes2[0], "<DecodeFinished>", 16)) break;
+        }
+        continue;
+      }
+      while(1) {  // could drop while here
         read_line(fd2, decodes2[*nd2]);
         if(sscanf(decodes2[*nd2], " %d", &dt) == 1 && ct - dt >= FT8_PERIOD) continue; // old late decode data, skip
         if(!strncmp(decodes2[*nd2], "<DecodeFinished>", 16)) break;
@@ -313,6 +333,8 @@ int main(int argc, char **argv) {
   else strcpy(filter_file, tmp);
   if(!(tmp = getenv("CONTINENT"))) continent[0] = '\0';
   else strcpy(continent, tmp);
+  if(!(tmp = getenv("PASS_THROUGH"))) pass_through = 0;
+  else pass_through = 1;
 
   if(!strncmp(argv[2], "WSJT-X - 2", 10)) {
     while(1) sleep(100); // do nothing - 2nd wsjt-x instance can be just minimized & ignored
@@ -360,10 +382,12 @@ int main(int argc, char **argv) {
 
   while(1) {
     get_decodes(p1[0], p2[0], decodes_1, decodes_2, &ndecodes1, &ndecodes2);
-    proc_decodes(decodes_1, ndecodes1, decodes_2, ndecodes2);
-    ndecodes1 = show_decodes(decodes_1, ndecodes1);
-    ndecodes2 = show_decodes(decodes_2, ndecodes2);
-    sprintf(buf, "<DecodeFinished>   0  %d        0\n", ndecodes1 + ndecodes2);
-    write(1, buf, strlen(buf));
+    if(!pass_through) {
+      proc_decodes(decodes_1, ndecodes1, decodes_2, ndecodes2);
+      ndecodes1 = show_decodes(decodes_1, ndecodes1);
+      ndecodes2 = show_decodes(decodes_2, ndecodes2);
+      sprintf(buf, "<DecodeFinished>   0  %d        0\n", ndecodes1 + ndecodes2);
+      write(1, buf, strlen(buf));
+    }
   }
 }

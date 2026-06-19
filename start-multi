@@ -3,6 +3,7 @@ export MYCALL=AA6KJ
 # export COLLECT_STATS=/home/eloranta/stats.out
 # export FILTER=/home/eloranta/cty.dat
 # export CONTINENT=EU
+# export PASS_THROUGH 1
 
 /usr/local/bin/wsjtx &
 /usr/local/bin/wsjtx -r 2
