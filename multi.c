@@ -56,9 +56,20 @@
 /* Your call sign - used to exclude your own transmission from slave WSJT-X */
 char mycall[16];
 
+/* Define this if you are using WS instead of WSJT-X (or improved) */
+#define WS
+
 /* Shared memory segment names (from running two separate WSJT-X's), second started with "wsjtx -r 2" */
+#ifndef WS
 #define SHM1 "WSJT-X"
 #define SHM2 "WSJT-X\\ -\\ 2"
+#define NAM2 "WSJT-X - 2"
+#else
+#define SHM1 "WS"
+#define SHM2 "WS\\ -\\ 2"
+#define NAM2 "WS - 2"
+#endif
+
 #define JT9PATH "/usr/local/bin/jt9.x"  // Path to the real jt9 program (jt9.x)
 
 char collect_stats[256]; // File name for storing statistics
@@ -336,7 +347,7 @@ int main(int argc, char **argv) {
   if(!(tmp = getenv("PASS_THROUGH"))) pass_through = 0;
   else pass_through = 1;
 
-  if(!strncmp(argv[2], "WSJT-X - 2", 10)) {
+  if(!strncmp(argv[2], NAM2, 10)) {
     while(1) sleep(100); // do nothing - 2nd wsjt-x instance can be just minimized & ignored
                          // the second wsjt-x water fall will show the correct data
     exit(0);
