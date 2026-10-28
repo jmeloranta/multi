@@ -37,4 +37,6 @@ ANOTHER PROBLEM
 It seems that even small differences in timing for the audio shared memory blocks will change how things get
 decoded. This effect will show up when identical audio signals are fed to both jt9.x processes (but are sampled
 slightly differently at the computer). Time is super critical. But neverthless multi can still provide rough
-comparison of antennas etc.
+comparison of antennas etc. Also the two RXs in Elecraft K4 are not phase locked, which means that the audio
+signals will have some phase difference between them. This again can influence the decoding process.
+
