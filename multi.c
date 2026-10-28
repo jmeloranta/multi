@@ -84,7 +84,7 @@ char continent[16];      // Continent for filtering (must match CTY format)
 #define TEMP1 "/tmp/proc1" // Each jt9 process has its own temp directory just in case
 #define TEMP2 "/tmp/proc2"
 
-#define START_WAIT   1    // Wait time before start jt9.x processes (helps avoid timing issue at the start)
+#define START_WAIT   1    // Wait time before starting jt9.x processes (helps avoid timing issue at the start)
 #define PROCESS_SYNC_S  2 // 2.36 seconds for letting the other jt9 process to finish (sec).
 #define PROCESS_SYNC_US 360000 // Microsec.
                           // Making this longer is good for late decodes but then we might be late in TX
