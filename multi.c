@@ -173,51 +173,59 @@ void collect_stats_func(char *msg, int rpt1, int rpt2) {
   write(stat_fd, buf, strlen(buf));
 }
 
+// TODO: Balance rx1 and rx2 reads? Or are the differences due to audio sampling?
 void get_decodes(int fd1, int fd2, char *decodes1[], char *decodes2[], int *nd1, int *nd2) {
 
   fd_set fds;
   struct timeval tv;
   int ct, dt;
-
+  char d1 = 0, d2 = 0;
+  
   *nd1 = *nd2 = 0;
   ct = getgmt();
 
-  while(1) {
+  while(!d1 || !d2) {
     FD_ZERO(&fds);
     FD_SET(fd1, &fds);
     FD_SET(fd2, &fds);
     tv.tv_sec = PROCESS_SYNC_S;
     tv.tv_usec = PROCESS_SYNC_US;
-    if(!select(MAX(fd1,fd2)+1, &fds, NULL, NULL, &tv)) break;
+    if(!select(MAX(fd1, fd2) + 1, &fds, NULL, NULL, &tv)) break;
     if(FD_ISSET(fd1, &fds)) {
       if(pass_through) {
-        while(1) {
-          read_line(fd1, decodes1[0]);
-          write(1, decodes1[0], strlen(decodes1[0]));
-          if(!strncmp(decodes1[0], "<DecodeFinished>", 16)) break;
-        }
-        continue;
-      }
-      while(1) {  // could drop while here?
-        read_line(fd1, decodes1[*nd1]);
-        if(sscanf(decodes1[*nd1], " %d", &dt) == 1 && ct - dt >= FT8_PERIOD) continue; // old late decode data, skip
-        if(!strncmp(decodes1[*nd1], "<DecodeFinished>", 16)) break;
-        (*nd1)++;
+	read_line(fd1, decodes1[0]);
+	if(sscanf(decodes1[*nd1], " %d", &dt) == 1 && ct - dt >= FT8_PERIOD) continue;
+	write(1, decodes1[0], strlen(decodes1[0]));
+	if(!strncmp(decodes1[0], "<DecodeFinished>", 16)) {
+	  d1 = 1;
+	  continue;
+	}
+      } else {
+	read_line(fd1, decodes1[*nd1]);
+	if(sscanf(decodes1[*nd1], " %d", &dt) == 1 && ct - dt >= FT8_PERIOD) continue;
+	if(!strncmp(decodes1[*nd1], "<DecodeFinished>", 16)) {
+	  d1 = 1;
+	  continue;
+	}
+	(*nd1)++;
       }
     }
     if(FD_ISSET(fd2, &fds)) {
       if(pass_through) {
-        while(1) {
-          read_line(fd2, decodes2[0]);
-          write(1, decodes2[0], strlen(decodes2[0]));
-          if(!strncmp(decodes2[0], "<DecodeFinished>", 16)) break;
-        }
-        continue;
-      }
-      while(1) {  // could drop while here?
+	read_line(fd2, decodes2[0]);
+        if(sscanf(decodes2[*nd2], " %d", &dt) == 1 && ct - dt >= FT8_PERIOD) continue;
+	write(1, decodes2[0], strlen(decodes2[0]));
+	if(!strncmp(decodes2[0], "<DecodeFinished>", 16)) {
+	  d2 = 1;
+	  continue;
+	}
+      } else {
         read_line(fd2, decodes2[*nd2]);
-        if(sscanf(decodes2[*nd2], " %d", &dt) == 1 && ct - dt >= FT8_PERIOD) continue; // old late decode data, skip
-        if(!strncmp(decodes2[*nd2], "<DecodeFinished>", 16)) break;
+        if(sscanf(decodes2[*nd2], " %d", &dt) == 1 && ct - dt >= FT8_PERIOD) continue;
+        if(!strncmp(decodes2[*nd2], "<DecodeFinished>", 16)) {
+	  d2 = 1;
+	  continue;
+	}
         (*nd2)++;
       }
     }
