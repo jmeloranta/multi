@@ -37,4 +37,5 @@ mv /usr/local/bin/jt9 /usr/local/bin/jt9.x
 ln -s /usr/local/bin/multi /usr/local/bin/jt9
 install -D multi /usr/local/bin
 install -D start-multi /usr/local/bin
+install -D multi-cmp /usr/local/bin
 exit 0
