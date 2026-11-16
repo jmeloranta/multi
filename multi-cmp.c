@@ -35,6 +35,7 @@
 // Mode & Hardware Configuration
 #define ALSA_DEVICE       "default" // Or "plughw:1,0" / "dsnoop:1,0"
 #define CAPTURE_SECONDS   15        // 15 for FT8 ("-8"), 60 for JT9 ("-9")
+#define GRACE_PERIOD      2360000000L // grace period for decoding (in nanoseconds)
 #define JT9_BINARY        "/usr/bin/jt9"
 #define MODE_FLAG         "-8"      // "-8" = FT8, "-9" = JT9, "-6" = JT65
 #define DEPTH_FLAG        "1"       // 1 = Fast, 2 = Normal, 3 = Deep
@@ -142,21 +143,29 @@ int write_mono_wav(const char *filepath, const int16_t *samples, uint32_t num_sa
 }
 
 void wait_for_utc_boundary(int period_sec, char *utc_label, size_t label_size) {
+    if (period_sec <= 0) return;
+
     struct timespec now;
     clock_gettime(CLOCK_REALTIME, &now);
 
     time_t sec_in_period = now.tv_sec % period_sec;
 
-    if (sec_in_period != 0 || now.tv_nsec >= 50000000L) {
+    // If called within GRACE_PERIOD AFTER a boundary (e.g., :15.050), don't wait another 15s.
+    const long grace_nsec = GRACE_PERIOD;
+
+    if (sec_in_period != 0 || now.tv_nsec >= grace_nsec) {
         struct timespec req;
         req.tv_sec = (period_sec - 1) - sec_in_period;
         req.tv_nsec = 1000000000L - now.tv_nsec;
+
         if (req.tv_nsec >= 1000000000L) {
             req.tv_sec += 1;
             req.tv_nsec -= 1000000000L;
         }
-        if (req.tv_sec > 0 || req.tv_nsec > 0) {
-            nanosleep(&req, NULL);
+
+        // Loop ensures OS signals (EINTR) don't wake it up early
+        while (nanosleep(&req, &req) == -1 && errno == EINTR) {
+            continue;
         }
     }
 
