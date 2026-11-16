@@ -572,7 +572,7 @@ static inline int16_t apply_fir_step(int16_t *history, int16_t new_sample) {
 
 void usage() {
 
-  fprintf(stderr, "Usage: multi-cmp or multi-cmp {NA,AS,EU,AF,OC,AN}\n");
+  fprintf(stderr, "Usage: multi-cmp {ALL,NA,AS,EU,AF,OC,AN}\n");
   exit(1);
 }
 
@@ -580,12 +580,11 @@ int main(int argc, char **argv) {
 
   struct sigaction sa;
 
-  if(argc > 2) usage();
-  if(argc == 2) {
-    if(strcmp(argv[1], "NA") && strcmp(argv[1], "AS") && strcmp(argv[1], "EU") && strcmp(argv[1], "AF") && strcmp(argv[1], "OC")
-       && strcmp(argv[1], "AN")) usage();
-    continent = argv[1];
-  }
+  if(argc != 2) usage();
+  if(strcmp(argv[1], "NA") && strcmp(argv[1], "AS") && strcmp(argv[1], "EU") && strcmp(argv[1], "AF") && strcmp(argv[1], "OC")
+     && strcmp(argv[1], "AN") && strcmp(argv[1], "ALL")) usage();
+  if(!strcmp(argv[1], "ALL")) continent = NULL;
+  else continent = argv[1];
   memset(&sa, 0, sizeof(sa));
   sa.sa_handler = handle_sigint;
   sigaction(SIGINT, &sa, NULL);
