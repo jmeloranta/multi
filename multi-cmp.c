@@ -35,7 +35,6 @@
 // Mode & Hardware Configuration
 #define ALSA_DEVICE       "default" // Or "plughw:1,0" / "dsnoop:1,0"
 #define CAPTURE_SECONDS   15        // 15 for FT8 ("-8"), 60 for JT9 ("-9")
-#define GRACE_PERIOD      2360000000L // grace period for decoding (in nanoseconds)
 #define JT9_BINARY        "/usr/bin/jt9"
 #define MODE_FLAG         "-8"      // "-8" = FT8, "-9" = JT9, "-6" = JT65
 #define DEPTH_FLAG        "1"       // 1 = Fast, 2 = Normal, 3 = Deep
@@ -143,33 +142,42 @@ int write_mono_wav(const char *filepath, const int16_t *samples, uint32_t num_sa
 }
 
 void wait_for_utc_boundary(int period_sec, char *utc_label, size_t label_size) {
-    if (period_sec <= 0) return;
+    if (period_sec <= 0) {
+        if (utc_label && label_size > 0) utc_label[0] = '\0';
+        return;
+    }
 
+    static time_t target_boundary = 0;
     struct timespec now;
     clock_gettime(CLOCK_REALTIME, &now);
 
-    time_t sec_in_period = now.tv_sec % period_sec;
-
-    // If called within GRACE_PERIOD AFTER a boundary (e.g., :15.050), don't wait another 15s.
-    const long grace_nsec = GRACE_PERIOD;
-
-    if (sec_in_period != 0 || now.tv_nsec >= grace_nsec) {
-        struct timespec req;
-        req.tv_sec = (period_sec - 1) - sec_in_period;
-        req.tv_nsec = 1000000000L - now.tv_nsec;
-
-        if (req.tv_nsec >= 1000000000L) {
-            req.tv_sec += 1;
-            req.tv_nsec -= 1000000000L;
-        }
-
-        // Loop ensures OS signals (EINTR) don't wake it up early
-        while (nanosleep(&req, &req) == -1 && errno == EINTR) {
-            continue;
-        }
+    // Initialize on first call to the upcoming :00, :15, :30, or :45 boundary
+    if (target_boundary == 0) {
+        target_boundary = now.tv_sec + (period_sec - (now.tv_sec % period_sec));
     }
 
-    clock_gettime(CLOCK_REALTIME, &now);
+    // Only sleep if we arrived BEFORE the expected boundary
+    if (now.tv_sec < target_boundary) {
+        struct timespec target_ts = {
+            .tv_sec = target_boundary,
+            .tv_nsec = 0
+        };
+
+        // Sleep until the exact absolute wall-clock boundary
+        while (clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &target_ts, NULL) == EINTR) {
+            continue;
+        }
+        clock_gettime(CLOCK_REALTIME, &now);
+    }
+
+    // Advance strictly by period_sec to lock onto :00, :15, :30, :45 without drift
+    target_boundary += period_sec;
+
+    // Optional: If we were so late that we missed multiple periods, jump to the next future boundary
+    if (target_boundary <= now.tv_sec) {
+        target_boundary = now.tv_sec + (period_sec - (now.tv_sec % period_sec));
+    }
+
     struct tm gmt;
     gmtime_r(&now.tv_sec, &gmt);
     snprintf(utc_label, label_size, "%02d:%02d:%02d UTC", gmt.tm_hour, gmt.tm_min, gmt.tm_sec);
