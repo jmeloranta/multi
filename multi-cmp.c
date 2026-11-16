@@ -23,9 +23,6 @@
 #include <sys/prctl.h>
 #include <alsa/asoundlib.h>
 
-// Target continent: NA, AS, EU, AF, OC, AN
-#define CONTINENT "EU"
-
 // Audio & Resampling Parameters
 #define CAPTURE_RATE      48000
 #define DECIMATION_FACTOR 4
@@ -89,6 +86,7 @@ typedef struct {
 
 static StationStats station_table[MAX_STATIONS];
 static int station_count = 0;
+char *continent = NULL;
 
 typedef struct {
     char wav_left[64];
@@ -433,10 +431,8 @@ void print_channel_comparison(const char *utc_label,
   }
   printf("[%s] --- Channel dB Comparison (Left - Right) ---\n", utc_label);
   for (int i = 0; i < left_count; i++) {
-#ifdef CONTINENT
     extern char *get_continent_from_callsign(char *);
-    if (strcmp(get_continent_from_callsign(left_list[i].callsign), CONTINENT)) continue;
-#endif
+    if (continent && strcmp(get_continent_from_callsign(left_list[i].callsign), continent)) continue;
     for (int j = 0; j < right_count; j++) {
       if (!right_list[j].matched &&
 	  strcmp(left_list[i].message, right_list[j].message) == 0 &&
@@ -460,10 +456,8 @@ void print_channel_comparison(const char *utc_label,
     }
   }
   for (int i = 0; i < left_count; i++) {
-#ifdef CONTINENT
     extern char *get_continent_from_callsign(char *);
-    if (strcmp(get_continent_from_callsign(left_list[i].callsign), CONTINENT)) continue;
-#endif
+    if (continent && strcmp(get_continent_from_callsign(left_list[i].callsign), continent)) continue;
     if (!left_list[i].matched) {
       printf("  %-10s | %-22s | %4d Hz | L: %+3d dB | R:   ---  | LEFT only\n",
 	     left_list[i].callsign, left_list[i].message, left_list[i].freq_hz, left_list[i].snr_db);
@@ -471,10 +465,8 @@ void print_channel_comparison(const char *utc_label,
     }
   }
   for (int j = 0; j < right_count; j++) {
-#ifdef CONTINENT
     extern char *get_continent_from_callsign(char *);
-    if (strcmp(get_continent_from_callsign(right_list[j].callsign), CONTINENT)) continue;
-#endif
+    if (continent && strcmp(get_continent_from_callsign(right_list[j].callsign), continent)) continue;
     if (!right_list[j].matched) {
       printf("  %-10s | %-22s | %4d Hz | L:   ---  | R: %+3d dB | RIGHT only\n",
 	     right_list[j].callsign, right_list[j].message, right_list[j].freq_hz, right_list[j].snr_db);
@@ -578,8 +570,22 @@ static inline int16_t apply_fir_step(int16_t *history, int16_t new_sample) {
   return (int16_t)scaled;
 }
 
-int main(void) {
+void usage() {
+
+  fprintf(stderr, "Usage: multi-cmp or multi-cmp {NA,AS,EU,AF,OC,AN}\n");
+  exit(1);
+}
+
+int main(int argc, char **argv) {
+
   struct sigaction sa;
+
+  if(argc > 2) usage();
+  if(argc == 2) {
+    if(strcmp(argv[1], "NA") && strcmp(argv[1], "AS") && strcmp(argv[1], "EU") && strcmp(argv[1], "AF") && strcmp(argv[1], "OC")
+       && strcmp(argv[1], "AN")) usage();
+    continent = argv[1];
+  }
   memset(&sa, 0, sizeof(sa));
   sa.sa_handler = handle_sigint;
   sigaction(SIGINT, &sa, NULL);
@@ -588,6 +594,7 @@ int main(void) {
   snd_pcm_hw_params_t *hw_params;
   unsigned int rate = CAPTURE_RATE;
   int err;
+
   if ((err = snd_pcm_open(&capture_handle, ALSA_DEVICE, SND_PCM_STREAM_CAPTURE, 0)) < 0) {
     fprintf(stderr, "Cannot open ALSA device %s: %s\n", ALSA_DEVICE, snd_strerror(err));
     return 1;
@@ -608,6 +615,7 @@ int main(void) {
     snd_pcm_close(capture_handle);
     return 1;
   }
+
   uint32_t max_output_samples = WAV_SAMPLE_RATE * UTC_PERIOD_SEC;
   int16_t *left_samples  = (int16_t *)calloc(max_output_samples, sizeof(int16_t));
   int16_t *right_samples = (int16_t *)calloc(max_output_samples, sizeof(int16_t));
