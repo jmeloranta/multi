@@ -20,6 +20,9 @@
 #include <sys/wait.h>
 #include <alsa/asoundlib.h>
 
+// Target continent: NA, AS, EU, AF, OC, AN
+#define CONTINENT "EU"
+
 // Audio & Resampling Parameters
 #define CAPTURE_RATE      48000
 #define DECIMATION_FACTOR 4
@@ -326,6 +329,10 @@ void print_channel_comparison(const char *utc_label,
   }
   printf("[%s] --- Channel dB Comparison (Left - Right) ---\n", utc_label);
   for (int i = 0; i < left_count; i++) {
+#ifdef CONTINENT
+    extern char *get_continent_from_callsign(char *);
+    if(strcmp(get_continent_from_callsign(left_list[i].callsign), CONTINENT)) continue;
+#endif
     for (int j = 0; j < right_count; j++) {
       if (!right_list[j].matched &&
 	  strcmp(left_list[i].message, right_list[j].message) == 0 &&
@@ -349,12 +356,20 @@ void print_channel_comparison(const char *utc_label,
     }
   }
   for (int i = 0; i < left_count; i++) {
+#ifdef CONTINENT
+    extern char *get_continent_from_callsign(char *);
+    if(strcmp(get_continent_from_callsign(left_list[i].callsign), CONTINENT)) continue;
+#endif
     if (!left_list[i].matched) {
       printf("  %-10s | %-22s | %4d Hz | L: %+3d dB | R:   ---  | LEFT only\n",
 	     left_list[i].callsign, left_list[i].message, left_list[i].freq_hz, left_list[i].snr_db);
     }
   }
   for (int j = 0; j < right_count; j++) {
+#ifdef CONTINENT
+    extern char *get_continent_from_callsign(char *);
+    if(strcmp(get_continent_from_callsign(right_list[j].callsign), CONTINENT)) continue;
+#endif
     if (!right_list[j].matched) {
       printf("  %-10s | %-22s | %4d Hz | L:   ---  | R: %+3d dB | RIGHT only\n",
 	     right_list[j].callsign, right_list[j].message, right_list[j].freq_hz, right_list[j].snr_db);
@@ -430,8 +445,10 @@ void run_parallel_decoders(const char *wav_left, const char *wav_right, const ch
 }
 
 static inline int16_t apply_fir_step(int16_t *history, int16_t new_sample) {
+
   memmove(&history[1], &history[0], (FIR_TAPS - 1) * sizeof(int16_t));
   history[0] = new_sample;
+
   int32_t acc = 0;
   for (int k = 0; k < FIR_TAPS; k++) {
     acc += (int32_t)history[k] * fir_coeffs[k];
@@ -443,12 +460,15 @@ static inline int16_t apply_fir_step(int16_t *history, int16_t new_sample) {
 }
 
 int main() {
+
   signal(SIGINT, handle_sigint);
   signal(SIGTERM, handle_sigint);
+
   snd_pcm_t *capture_handle;
   snd_pcm_hw_params_t *hw_params;
   unsigned int rate = CAPTURE_RATE;
   int err;
+
   if ((err = snd_pcm_open(&capture_handle, ALSA_DEVICE, SND_PCM_STREAM_CAPTURE, 0)) < 0) {
     fprintf(stderr, "Cannot open ALSA device %s: %s\n", ALSA_DEVICE, snd_strerror(err));
     return 1;
@@ -464,11 +484,13 @@ int main() {
     snd_pcm_close(capture_handle);
     return 1;
   }
+
   uint32_t total_capture_frames = (CAPTURE_RATE * CAPTURE_SECONDS) - (CAPTURE_RATE / 2);
   uint32_t max_output_samples = WAV_SAMPLE_RATE * CAPTURE_SECONDS;
   int16_t *left_samples  = (int16_t *)calloc(max_output_samples, sizeof(int16_t));
   int16_t *right_samples = (int16_t *)calloc(max_output_samples, sizeof(int16_t));
   int16_t interleaved_buf[CHUNK_FRAMES * CAPTURE_CHANNELS];
+
   if (!left_samples || !right_samples) {
     fprintf(stderr, "Memory allocation failed.\n");
     free(left_samples);
