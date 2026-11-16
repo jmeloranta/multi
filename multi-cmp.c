@@ -77,10 +77,12 @@ typedef struct {
 
 typedef struct {
     char  callsign[MAX_CALLSIGN_LEN];
-    int   samples;          // Number of matched decodes
-    long  sum_left_db;      // Sum of Left SNR (dB)
-    long  sum_right_db;     // Sum of Right SNR (dB)
-    long  sum_diff_db;      // Sum of (Left - Right) dB
+    int   samples;          // Number of matched decodes (both channels)
+    int   left_only;        // Decoded on Left only (missed on Right)
+    int   right_only;       // Decoded on Right only (missed on Left)
+    long  sum_left_db;      // Sum of Left SNR (dB) on matched decodes
+    long  sum_right_db;     // Sum of Right SNR (dB) on matched decodes
+    long  sum_diff_db;      // Sum of (Left - Right) dB on matched decodes
     int   min_diff_db;      // Minimum (Left - Right) dB seen
     int   max_diff_db;      // Maximum (Left - Right) dB seen
 } StationStats;
@@ -91,7 +93,7 @@ static int station_count = 0;
 typedef struct {
     char wav_left[64];
     char wav_right[64];
-    char utc_label[128];
+    char utc_label[64];
 } DecodeJob;
 
 typedef struct __attribute__((packed)) {
@@ -189,9 +191,6 @@ void wait_for_utc_boundary(int period_sec, char *utc_label, size_t label_size) {
         }
     }
 
-    struct timespec t_enter;
-    clock_gettime(CLOCK_REALTIME, &t_enter);
-
     uint64_t expirations = 0;
     ssize_t s;
     do {
@@ -205,14 +204,10 @@ void wait_for_utc_boundary(int period_sec, char *utc_label, size_t label_size) {
         return;
     }
 
-    struct timespec t_exit;
-    clock_gettime(CLOCK_REALTIME, &t_exit);
-
     time_t current_mark = expected_mark;
     if (expirations > 0) {
         expected_mark += (time_t)(expirations * period_sec);
     }
-
 
     if (utc_label && label_size > 0) {
         struct tm gmt_mark;
@@ -267,6 +262,24 @@ void extract_sender_callsign(const char *message, char *out_call, size_t out_siz
     snprintf(out_call, out_size, "%s", chosen);
 }
 
+// Helper: find existing station entry or allocate a new one (caller must hold stats_mutex)
+static StationStats *get_or_create_station(const char *callsign) {
+    for (int i = 0; i < station_count; i++) {
+        if (strcmp(station_table[i].callsign, callsign) == 0) {
+            return &station_table[i];
+        }
+    }
+
+    if (station_count < MAX_STATIONS) {
+        StationStats *st = &station_table[station_count++];
+        memset(st, 0, sizeof(StationStats));
+        snprintf(st->callsign, sizeof(st->callsign), "%s", callsign);
+        return st;
+    }
+
+    return NULL;
+}
+
 // Record a matched station's Left vs. Right SNR into the cumulative session table (thread-safe)
 void record_station_stat(const char *callsign, int left_db, int right_db) {
     if (strcmp(callsign, "UNKNOWN") == 0) return;
@@ -275,83 +288,118 @@ void record_station_stat(const char *callsign, int left_db, int right_db) {
 
     pthread_mutex_lock(&stats_mutex);
 
-    for (int i = 0; i < station_count; i++) {
-        if (strcmp(station_table[i].callsign, callsign) == 0) {
-            station_table[i].samples++;
-            station_table[i].sum_left_db  += left_db;
-            station_table[i].sum_right_db += right_db;
-            station_table[i].sum_diff_db  += diff;
-            if (diff < station_table[i].min_diff_db) station_table[i].min_diff_db = diff;
-            if (diff > station_table[i].max_diff_db) station_table[i].max_diff_db = diff;
-            pthread_mutex_unlock(&stats_mutex);
-            return;
+    StationStats *st = get_or_create_station(callsign);
+    if (st) {
+        if (st->samples == 0) {
+            st->min_diff_db = diff;
+            st->max_diff_db = diff;
+        } else {
+            if (diff < st->min_diff_db) st->min_diff_db = diff;
+            if (diff > st->max_diff_db) st->max_diff_db = diff;
         }
-    }
-
-    if (station_count < MAX_STATIONS) {
-        StationStats *st = &station_table[station_count++];
-        snprintf(st->callsign, sizeof(st->callsign), "%s", callsign);
-        st->samples      = 1;
-        st->sum_left_db  = left_db;
-        st->sum_right_db = right_db;
-        st->sum_diff_db  = diff;
-        st->min_diff_db  = diff;
-        st->max_diff_db  = diff;
+        st->samples++;
+        st->sum_left_db  += left_db;
+        st->sum_right_db += right_db;
+        st->sum_diff_db  += diff;
     }
 
     pthread_mutex_unlock(&stats_mutex);
 }
 
-// Comparator to sort final station table by sample count descending, then callsign ascending
+// Record a single-channel decode (missed by the other channel) into the cumulative session table
+void record_missed_decode(const char *callsign, bool decoded_on_left) {
+  if (strcmp(callsign, "UNKNOWN") == 0) return;
+
+  pthread_mutex_lock(&stats_mutex);
+
+    StationStats *st = get_or_create_station(callsign);
+    if (st) {
+        if (decoded_on_left) {
+	  st->left_only++;
+	} else {
+	  st->right_only++;
+	}
+    }
+    pthread_mutex_unlock(&stats_mutex);
+}
+
+// Comparator to sort final station table by total decodes descending, then callsign ascending
 int compare_station_stats(const void *a, const void *b) {
   const StationStats *sa = (const StationStats *)a;
   const StationStats *sb = (const StationStats *)b;
+  int total_a = sa->samples + sa->left_only + sa->right_only;
+  int total_b = sb->samples + sb->left_only + sb->right_only;
   if (sb->samples != sa->samples) {
     return sb->samples - sa->samples;
+  }
+  if (total_b != total_a) {
+    return total_b - total_a;
   }
   return strcmp(sa->callsign, sb->callsign);
 }
 
-// Print final summary table of Station Callsign and dB Difference at program exit
+// Print final summary table of Station Callsign, SNR Difference, and Missed Decodes at exit
 void print_final_station_summary(void) {
   pthread_mutex_lock(&stats_mutex);
   pthread_mutex_lock(&print_mutex);
-  printf("\n================================================================================\n");
-  printf(" FINAL SESSION SUMMARY: STATION CALLSIGN vs. CHANNEL dB DIFFERENCE (LEFT - RIGHT)\n");
-  printf("================================================================================\n");
+  printf("\n========================================================================================================\n");
+  printf(" FINAL SESSION SUMMARY: STATION CALLSIGN vs. CHANNEL dB DIFFERENCE & MISSED DECODES (LEFT - RIGHT)\n");
+  printf("========================================================================================================\n");
   if (station_count == 0) {
-    printf(" No common stations were decoded on both channels during this session.\n");
-    printf("================================================================================\n");
+    printf(" No stations were decoded during this session.\n");
+    printf("========================================================================================================\n");
     pthread_mutex_unlock(&print_mutex);
     pthread_mutex_unlock(&stats_mutex);
     return;
   }
   qsort(station_table, station_count, sizeof(StationStats), compare_station_stats);
-  printf(" %-12s | %7s | %9s | %9s | %11s | %13s\n",
-	 "Callsign", "Matches", "Avg Left", "Avg Right", "Avg (L - R)", "Min / Max Diff");
-  printf("--------------+---------+-----------+-----------+-------------+---------------\n");
-  long grand_sum_diff = 0;
-  long grand_samples  = 0;
+  printf(" %-12s | %7s | %8s | %8s | %9s | %9s | %11s | %15s\n",
+	 "Callsign", "Matched", "L-Only", "R-Only", "Avg Left", "Avg Right", "Avg (L - R)", "Min / Max Diff");
+  printf("--------------+---------+----------+----------+-----------+-----------+-------------+-----------------\n");
+  long grand_sum_diff   = 0;
+  long grand_matched    = 0;
+  long grand_left_only  = 0;
+  long grand_right_only = 0;
   for (int i = 0; i < station_count; i++) {
     StationStats *st = &station_table[i];
-    double avg_l    = (double)st->sum_left_db  / st->samples;
-    double avg_r    = (double)st->sum_right_db / st->samples;
-    double avg_diff = (double)st->sum_diff_db  / st->samples;
-    grand_sum_diff += st->sum_diff_db;
-    grand_samples  += st->samples;
-    printf(" %-12s | %7d | %+6.1f dB | %+6.1f dB | %+8.1f dB | %+4d / %+4d dB\n",
-	   st->callsign,
-	   st->samples,
-	   avg_l,
-	   avg_r,
-	   avg_diff,
-	   st->min_diff_db,
-	   st->max_diff_db);
+    grand_matched    += st->samples;
+    grand_left_only  += st->left_only;
+    grand_right_only += st->right_only;
+    if (st->samples > 0) {
+      double avg_l    = (double)st->sum_left_db  / st->samples;
+      double avg_r    = (double)st->sum_right_db / st->samples;
+      double avg_diff = (double)st->sum_diff_db  / st->samples;
+      grand_sum_diff += st->sum_diff_db;
+      printf(" %-12s | %7d | %8d | %8d | %+6.1f dB | %+6.1f dB | %+8.1f dB | %+4d / %+4d dB\n",
+	     st->callsign,
+	     st->samples,
+	     st->left_only,
+	     st->right_only,
+	     avg_l,
+	     avg_r,
+	     avg_diff,
+	     st->min_diff_db,
+	     st->max_diff_db);
+    } else {
+      printf(" %-12s | %7d | %8d | %8d |    ---    |    ---    |     ---     |       ---\n",
+	     st->callsign,
+	     st->samples,
+	     st->left_only,
+	     st->right_only);
+    }
   }
-  printf("--------------+---------+-----------+-----------+-------------+---------------\n");
-  printf(" OVERALL MEAN DIFFERENCE ACROSS ALL %ld MATCHED DECODES: %+.2f dB\n",
-	 grand_samples, (double)grand_sum_diff / grand_samples);
-  printf("================================================================================\n");
+  long total_left_decodes  = grand_matched + grand_left_only;
+  long total_right_decodes = grand_matched + grand_right_only;
+  printf("--------------+---------+----------+----------+-----------+-----------+-------------+-----------------\n");
+  printf(" CHANNEL TOTALS: Left Decodes = %ld | Right Decodes = %ld | Matched = %ld\n",
+	 total_left_decodes, total_right_decodes, grand_matched);
+  printf(" MISSED DECODES: Missed by Right (Left-only) = %ld | Missed by Left (Right-only) = %ld\n",
+	 grand_left_only, grand_right_only);
+  if (grand_matched > 0) {
+    printf(" OVERALL MEAN DIFFERENCE ACROSS ALL %ld MATCHED DECODES: %+.2f dB\n",
+	   grand_matched, (double)grand_sum_diff / grand_matched);
+  }
+  printf("========================================================================================================\n");
   pthread_mutex_unlock(&print_mutex);
   pthread_mutex_unlock(&stats_mutex);
 }
@@ -419,6 +467,7 @@ void print_channel_comparison(const char *utc_label,
     if (!left_list[i].matched) {
       printf("  %-10s | %-22s | %4d Hz | L: %+3d dB | R:   ---  | LEFT only\n",
 	     left_list[i].callsign, left_list[i].message, left_list[i].freq_hz, left_list[i].snr_db);
+      record_missed_decode(left_list[i].callsign, true);
     }
   }
   for (int j = 0; j < right_count; j++) {
@@ -429,6 +478,7 @@ void print_channel_comparison(const char *utc_label,
     if (!right_list[j].matched) {
       printf("  %-10s | %-22s | %4d Hz | L:   ---  | R: %+3d dB | RIGHT only\n",
 	     right_list[j].callsign, right_list[j].message, right_list[j].freq_hz, right_list[j].snr_db);
+      record_missed_decode(right_list[j].callsign, false);
     }
   }
   printf("\n");
@@ -571,7 +621,7 @@ int main(void) {
   }
   int16_t fir_hist_l[FIR_TAPS] = {0};
   int16_t fir_hist_r[FIR_TAPS] = {0};
-  char utc_label[128];
+  char utc_label[64];
   uint32_t cycle_id = 0;
   // Prepare ALSA stream once before entering the periodic capture loop
   snd_pcm_prepare(capture_handle);
