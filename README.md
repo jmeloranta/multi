@@ -41,4 +41,14 @@ comparison of antennas etc. Also the two RXs in Elecraft K4 are not phase locked
 signals will have some phase difference between them. This again can influence the decoding process. The only
 way to solve this is to have one program that feeds the data to jt9x rather than two separate processes (WSJT-X).
 
+New program multi-cmp should resolve these issues. Usage:
+
+multi-cmp    OR   multi-cmp {NA,AS,EU,AF,OC,AN}
+
+where the optional continent will only record stations from that continent. When running the program for the first
+time, set the pipewire device from plasma audio settings to your radio USB sound card. You can probably also change
+the ALSA_DEVICE "default" in multi-cmp.c to the actual ALSA device of your radio. Make sure to adjust the audio
+level properly (with WSJT-X).
+
+
 
