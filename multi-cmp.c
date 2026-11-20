@@ -440,7 +440,7 @@ void print_channel_comparison(const char *utc_label,
 	int diff_db = left_list[i].snr_db - right_list[j].snr_db;
 	const char *stronger = (diff_db > 0) ? "LEFT stronger" :
 	  (diff_db < 0) ? "RIGHT stronger" : "EQUAL";
-	printf("  %-10s | %-22s | %4d Hz | L: %+3d dB | R: %+3d dB | Diff: %+3d dB (%s)\n",
+	printf("CHCMP:  %-10s | %-22s | %4d Hz | L: %+3d dB | R: %+3d dB | Diff: %+3d dB (%s)\n",
 	       left_list[i].callsign,
 	       left_list[i].message,
 	       left_list[i].freq_hz,
@@ -459,7 +459,7 @@ void print_channel_comparison(const char *utc_label,
     extern char *get_continent_from_callsign(char *);
     if (continent && strcmp(get_continent_from_callsign(left_list[i].callsign), continent)) continue;
     if (!left_list[i].matched) {
-      printf("  %-10s | %-22s | %4d Hz | L: %+3d dB | R:   ---  | LEFT only\n",
+      printf("CHCMP:  %-10s | %-22s | %4d Hz | L: %+3d dB | R:   ---  | LEFT only\n",
 	     left_list[i].callsign, left_list[i].message, left_list[i].freq_hz, left_list[i].snr_db);
       record_missed_decode(left_list[i].callsign, true);
     }
@@ -468,7 +468,7 @@ void print_channel_comparison(const char *utc_label,
     extern char *get_continent_from_callsign(char *);
     if (continent && strcmp(get_continent_from_callsign(right_list[j].callsign), continent)) continue;
     if (!right_list[j].matched) {
-      printf("  %-10s | %-22s | %4d Hz | L:   ---  | R: %+3d dB | RIGHT only\n",
+      printf("CHCMP:  %-10s | %-22s | %4d Hz | L:   ---  | R: %+3d dB | RIGHT only\n",
 	     right_list[j].callsign, right_list[j].message, right_list[j].freq_hz, right_list[j].snr_db);
       record_missed_decode(right_list[j].callsign, false);
     }
