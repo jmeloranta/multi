@@ -1,7 +1,18 @@
 /*
  * Cross-platform comparison of left (RX) vs. right (sub RX) decodes.
  * Supports Linux, macOS, and Windows.
+ *
+ * Make sure the paths below correspond to your system.
+ *
  */
+
+#ifdef _WIN32
+  #define JT9_BINARY "C:\\WSJT\\wsjtx\\bin\\jt9.exe"
+#elif defined(__APPLE__)
+  #define JT9_BINARY "/Applications/wsjtx.app/Contents/MacOS/jt9"
+#else
+  #define JT9_BINARY "/usr/bin/jt9"
+#endif
 
 #ifdef _WIN32
   #define _CRT_SECURE_NO_WARNINGS
@@ -45,14 +56,6 @@
 #define CAPTURE_DEADLINE  14.0      // Stop capture 14.0s into each 15.0s UTC slot
 #define MODE_FLAG         "-8"      // "-8" = FT8, "-9" = JT9, "-6" = JT65
 #define DEPTH_FLAG        "1"       // 1 = Fast, 2 = Normal, 3 = Deep
-
-#ifdef _WIN32
-  #define JT9_BINARY "C:\\WSJT\\wsjtx\\bin\\jt9.exe"
-#elif defined(__APPLE__)
-  #define JT9_BINARY "/Applications/wsjtx.app/Contents/MacOS/jt9"
-#else
-  #define JT9_BINARY "/usr/bin/jt9"
-#endif
 
 // Decode & Station Tracking Limits
 #define MAX_DECODES       128
