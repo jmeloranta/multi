@@ -1,4 +1,12 @@
-WSJT-X aggregator (Linux only)
+WSJT-X aggregator
+
+The multi program (coordinating between two WSJT-X instances) is Linux only but multi-cmp (dual RX comparison program) should compile
+on both windows and mac too. I do not have any windows/mac computers so I have no idea if it actually compiles or not. See the Makefile for
+hints on compilation.
+
+multi-cmp needs: miniaudio, pthread library (-phthread), dynamic library handling (-dl) and math library (-lm). I think
+windows compilation does not need to add them but on mac perhaps: -framework CoreFoundation -framework CoreAudio -framework AudioToolbox
+would work (?). Note that miniaudio is include header only - there is only the include file but no library.
 
 Background
 

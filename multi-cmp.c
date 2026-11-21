@@ -1,11 +1,23 @@
 /*
- * Comparison of left (RX) vs. right (sub RX) decodes.
- *
- * Samples read at the same time, which avoids inaccuracies introduced by the
- * original multi.c program.
- *
- * Google AI generated code.
+ * Cross-platform comparison of left (RX) vs. right (sub RX) decodes.
+ * Supports Linux, macOS, and Windows.
  */
+
+#ifdef _WIN32
+  #define _CRT_SECURE_NO_WARNINGS
+  #define WIN32_LEAN_AND_MEAN
+  #include <windows.h>
+  #include <io.h>
+  #define unlink _unlink
+  #define popen  _popen
+  #define pclose _pclose
+#else
+  #define _DEFAULT_SOURCE
+  #define _POSIX_C_SOURCE 200809L
+  #include <unistd.h>
+  #include <pthread.h>
+  #include <sys/time.h>
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,13 +27,10 @@
 #include <ctype.h>
 #include <time.h>
 #include <signal.h>
-#include <unistd.h>
 #include <errno.h>
-#include <pthread.h>
-#include <sys/wait.h>
-#include <sys/timerfd.h>
-#include <sys/prctl.h>
-#include <alsa/asoundlib.h>
+
+#define MINIAUDIO_IMPLEMENTATION
+#include <miniaudio/miniaudio.h>
 
 // Audio & Resampling Parameters
 #define CAPTURE_RATE      48000
@@ -30,15 +39,20 @@
 #define BITS_PER_SAMPLE   16
 #define CAPTURE_CHANNELS  2
 #define WAV_CHANNELS      1
-#define CHUNK_FRAMES      1024
 
 // Mode & Hardware Configuration
-#define ALSA_DEVICE       "default" // Or "plughw:1,0" / "dsnoop:1,0"
 #define UTC_PERIOD_SEC    15        // 15 for FT8 ("-8"), 60 for JT9 ("-9")
 #define CAPTURE_DEADLINE  14.0      // Stop capture 14.0s into each 15.0s UTC slot
-#define JT9_BINARY        "/usr/bin/jt9"
 #define MODE_FLAG         "-8"      // "-8" = FT8, "-9" = JT9, "-6" = JT65
 #define DEPTH_FLAG        "1"       // 1 = Fast, 2 = Normal, 3 = Deep
+
+#ifdef _WIN32
+  #define JT9_BINARY "C:\\WSJT\\wsjtx\\bin\\jt9.exe"
+#elif defined(__APPLE__)
+  #define JT9_BINARY "/Applications/wsjtx.app/Contents/MacOS/jt9"
+#else
+  #define JT9_BINARY "/usr/bin/jt9"
+#endif
 
 // Decode & Station Tracking Limits
 #define MAX_DECODES       128
@@ -54,15 +68,113 @@ static const int32_t fir_coeffs[FIR_TAPS] = {
 };
 #define FIR_SCALE_SHIFT 15
 
+// --- Cross-Platform Threading & Time Abstractions ---
+#ifdef _WIN32
+  typedef CRITICAL_SECTION mutex_t;
+  #define mutex_init(m)    InitializeCriticalSection(m)
+  #define mutex_lock(m)    EnterCriticalSection(m)
+  #define mutex_unlock(m)  LeaveCriticalSection(m)
+  #define sleep_ms(ms)     Sleep(ms)
+  #define strtok_r         strtok_s
+#else
+  typedef pthread_mutex_t mutex_t;
+  #define mutex_init(m)    pthread_mutex_init(m, NULL)
+  #define mutex_lock(m)    pthread_mutex_lock(m)
+  #define mutex_unlock(m)  pthread_mutex_unlock(m)
+  static inline void sleep_ms(int ms) {
+      struct timespec ts = { .tv_sec = ms / 1000, .tv_nsec = (ms % 1000) * 1000000L };
+      nanosleep(&ts, NULL);
+  }
+#endif
+
 static volatile sig_atomic_t keep_running = 1;
-static pthread_mutex_t stats_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t print_mutex = PTHREAD_MUTEX_INITIALIZER;
+static mutex_t stats_mutex;
+static mutex_t print_mutex;
+static mutex_t audio_mutex;
 
 void handle_sigint(int sig) {
     (void)sig;
     keep_running = 0;
 }
 
+double get_wall_time_sec(void) {
+#ifdef _WIN32
+    FILETIME ft;
+    GetSystemTimePreciseAsFileTime(&ft);
+    uint64_t ticks = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+    // Convert Windows epoch (1601) to Unix epoch (1970) in seconds
+    return (double)(ticks - 116444736000000000ULL) / 1e7;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#endif
+}
+
+void get_temp_dir(char *buf, size_t size) {
+#ifdef _WIN32
+    GetTempPathA((DWORD)size, buf);
+#elif defined(__linux__)
+    snprintf(buf, size, "/dev/shm/");
+#else
+    snprintf(buf, size, "/tmp/");
+#endif
+}
+
+// --- Ring Buffer & Audio Callback State ---
+typedef struct {
+    int16_t *left_buf;
+    int16_t *right_buf;
+    uint32_t max_samples;
+    uint32_t write_idx;
+    bool     capturing;
+    int16_t  fir_hist_l[FIR_TAPS];
+    int16_t  fir_hist_r[FIR_TAPS];
+    int      decimate_phase;
+} AudioCaptureState;
+
+static AudioCaptureState cap_state;
+
+static inline int16_t apply_fir_step(int16_t *history, int16_t new_sample) {
+    memmove(&history[1], &history[0], (FIR_TAPS - 1) * sizeof(int16_t));
+    history[0] = new_sample;
+    int32_t acc = 0;
+    for (int k = 0; k < FIR_TAPS; k++) {
+        acc += (int32_t)history[k] * fir_coeffs[k];
+    }
+    int32_t scaled = acc >> FIR_SCALE_SHIFT;
+    if (scaled > 32767) return 32767;
+    if (scaled < -32768) return -32768;
+    return (int16_t)scaled;
+}
+
+void data_callback(ma_device *pDevice, void *pOutput, const void *pInput, ma_uint32 frameCount) {
+    (void)pDevice;
+    (void)pOutput;
+    if (!pInput) return;
+
+    const int16_t *in = (const int16_t *)pInput;
+
+    mutex_lock(&audio_mutex);
+    if (cap_state.capturing) {
+        for (ma_uint32 i = 0; i < frameCount; i++) {
+            int16_t filt_l = apply_fir_step(cap_state.fir_hist_l, in[i * 2]);
+            int16_t filt_r = apply_fir_step(cap_state.fir_hist_r, in[i * 2 + 1]);
+            cap_state.decimate_phase++;
+            if (cap_state.decimate_phase == DECIMATION_FACTOR) {
+                if (cap_state.write_idx < cap_state.max_samples) {
+                    cap_state.left_buf[cap_state.write_idx]  = filt_l;
+                    cap_state.right_buf[cap_state.write_idx] = filt_r;
+                    cap_state.write_idx++;
+                }
+                cap_state.decimate_phase = 0;
+            }
+        }
+    }
+    mutex_unlock(&audio_mutex);
+}
+
+// --- Data Structures ---
 typedef struct {
     int   snr_db;
     float dt;
@@ -74,14 +186,14 @@ typedef struct {
 
 typedef struct {
     char  callsign[MAX_CALLSIGN_LEN];
-    int   samples;          // Number of matched decodes (both channels)
-    int   left_only;        // Decoded on Left only (missed on Right)
-    int   right_only;       // Decoded on Right only (missed on Left)
-    long  sum_left_db;      // Sum of Left SNR (dB) on matched decodes
-    long  sum_right_db;     // Sum of Right SNR (dB) on matched decodes
-    long  sum_diff_db;      // Sum of (Left - Right) dB on matched decodes
-    int   min_diff_db;      // Minimum (Left - Right) dB seen
-    int   max_diff_db;      // Maximum (Left - Right) dB seen
+    int   samples;
+    int   left_only;
+    int   right_only;
+    long  sum_left_db;
+    long  sum_right_db;
+    long  sum_diff_db;
+    int   min_diff_db;
+    int   max_diff_db;
 } StationStats;
 
 static StationStats station_table[MAX_STATIONS];
@@ -89,12 +201,13 @@ static int station_count = 0;
 char *continent = NULL;
 
 typedef struct {
-    char wav_left[64];
-    char wav_right[64];
+    char wav_left[256];
+    char wav_right[256];
     char utc_label[64];
 } DecodeJob;
 
-typedef struct __attribute__((packed)) {
+#pragma pack(push, 1)
+typedef struct {
     char     riff[4];
     uint32_t overall_size;
     char     wave[4];
@@ -109,10 +222,10 @@ typedef struct __attribute__((packed)) {
     char     data_chunk_header[4];
     uint32_t data_size;
 } WavHeader;
+#pragma pack(pop)
 
 void populate_wav_header(WavHeader *header, uint32_t num_samples) {
     uint32_t data_bytes = num_samples * WAV_CHANNELS * (BITS_PER_SAMPLE / 8);
-
     memcpy(header->riff, "RIFF", 4);
     header->overall_size = data_bytes + sizeof(WavHeader) - 8;
     memcpy(header->wave, "WAVE", 4);
@@ -137,88 +250,48 @@ int write_mono_wav(const char *filepath, const int16_t *samples, uint32_t num_sa
         perror("fopen wav");
         return -1;
     }
-
     if (fwrite(&header, sizeof(WavHeader), 1, fp) != 1 ||
         fwrite(samples, sizeof(int16_t), num_samples, fp) != num_samples) {
         perror("fwrite wav");
         fclose(fp);
         return -1;
     }
-
     fclose(fp);
     return 0;
 }
 
 void wait_for_utc_boundary(int period_sec, char *utc_label, size_t label_size) {
-    if (period_sec <= 0) {
-        if (utc_label && label_size > 0) {
-            utc_label[0] = '\0';
+    double now = get_wall_time_sec();
+    time_t sec = (time_t)now;
+    time_t target_sec = sec + (period_sec - (sec % period_sec));
+
+    while (keep_running) {
+        double current = get_wall_time_sec();
+        double remaining = (double)target_sec - current;
+        if (remaining <= 0.0) break;
+
+        // Coarse sleep until within 15ms, then tight yield for sub-millisecond precision
+        if (remaining > 0.020) {
+            sleep_ms((int)((remaining - 0.015) * 1000.0));
+        } else {
+            sleep_ms(1);
         }
-        return;
-    }
-
-    static int tfd = -1;
-    static time_t expected_mark = 0;
-
-    if (tfd == -1) {
-        // Minimize kernel timer coalescing/slack for high-precision wakeups
-        prctl(PR_SET_TIMERSLACK, 1UL, 0, 0, 0);
-
-        tfd = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC);
-        if (tfd == -1) {
-            fprintf(stderr, "timerfd_create failed: %s\n", strerror(errno));
-            if (utc_label && label_size > 0) {
-                utc_label[0] = '\0';
-            }
-            return;
-        }
-
-        struct timespec now;
-        clock_gettime(CLOCK_REALTIME, &now);
-
-        // Snap strictly to the next upcoming UTC boundary (e.g., :00, :15, :30, :45)
-        expected_mark = now.tv_sec + (period_sec - (now.tv_sec % period_sec));
-
-        struct itimerspec its = {
-            .it_interval = { .tv_sec = period_sec, .tv_nsec = 0 },
-            .it_value    = { .tv_sec = expected_mark, .tv_nsec = 0 }
-        };
-
-        if (timerfd_settime(tfd, TFD_TIMER_ABSTIME, &its, NULL) == -1) {
-            fprintf(stderr, "timerfd_settime failed: %s\n", strerror(errno));
-        }
-    }
-
-    uint64_t expirations = 0;
-    ssize_t s;
-    do {
-        s = read(tfd, &expirations, sizeof(expirations));
-    } while (s == -1 && errno == EINTR);
-
-    if (s == -1) {
-        if (errno != EINTR) {
-            fprintf(stderr, "timerfd read failed: %s\n", strerror(errno));
-        }
-        return;
-    }
-
-    time_t current_mark = expected_mark;
-    if (expirations > 0) {
-        expected_mark += (time_t)(expirations * period_sec);
     }
 
     if (utc_label && label_size > 0) {
         struct tm gmt_mark;
-        gmtime_r(&current_mark, &gmt_mark);
+#ifdef _WIN32
+        gmtime_s(&gmt_mark, &target_sec);
+#else
+        gmtime_r(&target_sec, &gmt_mark);
+#endif
         snprintf(utc_label, label_size, "%02d:%02d:%02d UTC",
                  gmt_mark.tm_hour, gmt_mark.tm_min, gmt_mark.tm_sec);
     }
 }
 
-// Helper: check if a token looks like an amateur radio callsign (contains both letters & digits)
 bool is_callsign_token(const char *tok) {
-    bool has_alpha = false;
-    bool has_digit = false;
+    bool has_alpha = false, has_digit = false;
     for (size_t i = 0; tok[i] != '\0'; i++) {
         if (isalpha((unsigned char)tok[i])) has_alpha = true;
         else if (isdigit((unsigned char)tok[i])) has_digit = true;
@@ -226,7 +299,6 @@ bool is_callsign_token(const char *tok) {
     return has_alpha && has_digit && strlen(tok) >= 3;
 }
 
-// Extract the transmitting station's callsign from an FT8/JT9 payload
 void extract_sender_callsign(const char *message, char *out_call, size_t out_size) {
     char buf[MAX_MSG_LEN];
     snprintf(buf, sizeof(buf), "%s", message);
@@ -239,7 +311,6 @@ void extract_sender_callsign(const char *message, char *out_call, size_t out_siz
         if (tok[0] == '<') tok++;
         size_t len = strlen(tok);
         if (len > 0 && tok[len - 1] == '>') tok[len - 1] = '\0';
-
         tokens[n_tok++] = tok;
         tok = strtok_r(NULL, " ", &saveptr);
     }
@@ -256,108 +327,84 @@ void extract_sender_callsign(const char *message, char *out_call, size_t out_siz
     } else if (n_tok >= 1 && is_callsign_token(tokens[0])) {
         chosen = tokens[0];
     }
-
     snprintf(out_call, out_size, "%s", chosen);
 }
 
-// Helper: find existing station entry or allocate a new one (caller must hold stats_mutex)
 static StationStats *get_or_create_station(const char *callsign) {
     for (int i = 0; i < station_count; i++) {
         if (strcmp(station_table[i].callsign, callsign) == 0) {
-            return &station_table[i];
-        }
+	  return &station_table[i];
+	}
     }
-
     if (station_count < MAX_STATIONS) {
-        StationStats *st = &station_table[station_count++];
-        memset(st, 0, sizeof(StationStats));
-        snprintf(st->callsign, sizeof(st->callsign), "%s", callsign);
-        return st;
+      StationStats *st = &station_table[station_count++];
+      memset(st, 0, sizeof(StationStats));
+      snprintf(st->callsign, sizeof(st->callsign), "%s", callsign);
+      return st;
     }
-
     return NULL;
 }
 
-// Record a matched station's Left vs. Right SNR into the cumulative session table (thread-safe)
 void record_station_stat(const char *callsign, int left_db, int right_db) {
-    if (strcmp(callsign, "UNKNOWN") == 0) return;
-
-    int diff = left_db - right_db;
-
-    pthread_mutex_lock(&stats_mutex);
-
-    StationStats *st = get_or_create_station(callsign);
-    if (st) {
-        if (st->samples == 0) {
-            st->min_diff_db = diff;
-            st->max_diff_db = diff;
-        } else {
-            if (diff < st->min_diff_db) st->min_diff_db = diff;
-            if (diff > st->max_diff_db) st->max_diff_db = diff;
-        }
-        st->samples++;
-        st->sum_left_db  += left_db;
-        st->sum_right_db += right_db;
-        st->sum_diff_db  += diff;
+  if (strcmp(callsign, "UNKNOWN") == 0) return;
+  int diff = left_db - right_db;
+  mutex_lock(&stats_mutex);
+  StationStats *st = get_or_create_station(callsign);
+  if (st) {
+    if (st->samples == 0) {
+      st->min_diff_db = diff;
+      st->max_diff_db = diff;
+    } else {
+      if (diff < st->min_diff_db) st->min_diff_db = diff;
+      if (diff > st->max_diff_db) st->max_diff_db = diff;
     }
-
-    pthread_mutex_unlock(&stats_mutex);
+    st->samples++;
+    st->sum_left_db  += left_db;
+    st->sum_right_db += right_db;
+    st->sum_diff_db  += diff;
+  }
+  mutex_unlock(&stats_mutex);
 }
 
-// Record a single-channel decode (missed by the other channel) into the cumulative session table
 void record_missed_decode(const char *callsign, bool decoded_on_left) {
   if (strcmp(callsign, "UNKNOWN") == 0) return;
-
-  pthread_mutex_lock(&stats_mutex);
-
-    StationStats *st = get_or_create_station(callsign);
-    if (st) {
-        if (decoded_on_left) {
-	  st->left_only++;
-	} else {
-	  st->right_only++;
-	}
-    }
-    pthread_mutex_unlock(&stats_mutex);
+  mutex_lock(&stats_mutex);
+  StationStats *st = get_or_create_station(callsign);
+  if (st) {
+    if (decoded_on_left) st->left_only++;
+    else st->right_only++;
+  }
+  mutex_unlock(&stats_mutex);
 }
 
-// Comparator to sort final station table by total decodes descending, then callsign ascending
 int compare_station_stats(const void *a, const void *b) {
   const StationStats *sa = (const StationStats *)a;
   const StationStats *sb = (const StationStats *)b;
   int total_a = sa->samples + sa->left_only + sa->right_only;
   int total_b = sb->samples + sb->left_only + sb->right_only;
-  if (sb->samples != sa->samples) {
-    return sb->samples - sa->samples;
-  }
-  if (total_b != total_a) {
-    return total_b - total_a;
-  }
+  if (sb->samples != sa->samples) return sb->samples - sa->samples;
+  if (total_b != total_a) return total_b - total_a;
   return strcmp(sa->callsign, sb->callsign);
 }
 
-// Print final summary table of Station Callsign, SNR Difference, and Missed Decodes at exit
 void print_final_station_summary(void) {
-  pthread_mutex_lock(&stats_mutex);
-  pthread_mutex_lock(&print_mutex);
+  mutex_lock(&stats_mutex);
+  mutex_lock(&print_mutex);
   printf("\n========================================================================================================\n");
   printf(" FINAL SESSION SUMMARY: STATION CALLSIGN vs. CHANNEL dB DIFFERENCE & MISSED DECODES (LEFT - RIGHT)\n");
   printf("========================================================================================================\n");
   if (station_count == 0) {
     printf(" No stations were decoded during this session.\n");
     printf("========================================================================================================\n");
-    pthread_mutex_unlock(&print_mutex);
-    pthread_mutex_unlock(&stats_mutex);
+    mutex_unlock(&print_mutex);
+    mutex_unlock(&stats_mutex);
     return;
   }
   qsort(station_table, station_count, sizeof(StationStats), compare_station_stats);
   printf(" %-12s | %7s | %8s | %8s | %9s | %9s | %11s | %15s\n",
 	 "Callsign", "Matched", "L-Only", "R-Only", "Avg Left", "Avg Right", "Avg (L - R)", "Min / Max Diff");
   printf("--------------+---------+----------+----------+-----------+-----------+-------------+-----------------\n");
-  long grand_sum_diff   = 0;
-  long grand_matched    = 0;
-  long grand_left_only  = 0;
-  long grand_right_only = 0;
+  long grand_sum_diff = 0, grand_matched = 0, grand_left_only = 0, grand_right_only = 0;
   for (int i = 0; i < station_count; i++) {
     StationStats *st = &station_table[i];
     grand_matched    += st->samples;
@@ -369,28 +416,16 @@ void print_final_station_summary(void) {
       double avg_diff = (double)st->sum_diff_db  / st->samples;
       grand_sum_diff += st->sum_diff_db;
       printf(" %-12s | %7d | %8d | %8d | %+6.1f dB | %+6.1f dB | %+8.1f dB | %+4d / %+4d dB\n",
-	     st->callsign,
-	     st->samples,
-	     st->left_only,
-	     st->right_only,
-	     avg_l,
-	     avg_r,
-	     avg_diff,
-	     st->min_diff_db,
-	     st->max_diff_db);
+	     st->callsign, st->samples, st->left_only, st->right_only,
+	     avg_l, avg_r, avg_diff, st->min_diff_db, st->max_diff_db);
     } else {
       printf(" %-12s | %7d | %8d | %8d |    ---    |    ---    |     ---     |       ---\n",
-	     st->callsign,
-	     st->samples,
-	     st->left_only,
-	     st->right_only);
+	     st->callsign, st->samples, st->left_only, st->right_only);
     }
   }
-  long total_left_decodes  = grand_matched + grand_left_only;
-  long total_right_decodes = grand_matched + grand_right_only;
   printf("--------------+---------+----------+----------+-----------+-----------+-------------+-----------------\n");
   printf(" CHANNEL TOTALS: Left Decodes = %ld | Right Decodes = %ld | Matched = %ld\n",
-	 total_left_decodes, total_right_decodes, grand_matched);
+	 grand_matched + grand_left_only, grand_matched + grand_right_only, grand_matched);
   printf(" MISSED DECODES: Missed by Right (Left-only) = %ld | Missed by Left (Right-only) = %ld\n",
 	 grand_left_only, grand_right_only);
   if (grand_matched > 0) {
@@ -398,13 +433,12 @@ void print_final_station_summary(void) {
 	   grand_matched, (double)grand_sum_diff / grand_matched);
   }
   printf("========================================================================================================\n");
-  pthread_mutex_unlock(&print_mutex);
-  pthread_mutex_unlock(&stats_mutex);
+  mutex_unlock(&print_mutex);
+  mutex_unlock(&stats_mutex);
 }
 
 bool parse_jt9_line(const char *line, DecodeEntry *entry) {
-  char utc_str[16];
-  char mode_sym[8];
+  char utc_str[16], mode_sym[8];
   int offset = 0;
   if (sscanf(line, "%15s %d %f %d %7s %n",
 	     utc_str, &entry->snr_db, &entry->dt, &entry->freq_hz, mode_sym, &offset) != 5) {
@@ -426,12 +460,10 @@ bool parse_jt9_line(const char *line, DecodeEntry *entry) {
 void print_channel_comparison(const char *utc_label,
 			      DecodeEntry *left_list, int left_count,
 			      DecodeEntry *right_list, int right_count) {
-  if (left_count == 0 && right_count == 0) {
-    return;
-  }
+  if (left_count == 0 && right_count == 0) return;
+  extern const char *get_continent_from_callsign(char *);
   printf("[%s] --- Channel dB Comparison (Left - Right) ---\n", utc_label);
   for (int i = 0; i < left_count; i++) {
-    extern char *get_continent_from_callsign(char *);
     if (continent && strcmp(get_continent_from_callsign(left_list[i].callsign), continent)) continue;
     for (int j = 0; j < right_count; j++) {
       if (!right_list[j].matched &&
@@ -441,13 +473,8 @@ void print_channel_comparison(const char *utc_label,
 	const char *stronger = (diff_db > 0) ? "LEFT stronger" :
 	  (diff_db < 0) ? "RIGHT stronger" : "EQUAL";
 	printf("CHCMP:  %-10s | %-22s | %4d Hz | L: %+3d dB | R: %+3d dB | Diff: %+3d dB (%s)\n",
-	       left_list[i].callsign,
-	       left_list[i].message,
-	       left_list[i].freq_hz,
-	       left_list[i].snr_db,
-	       right_list[j].snr_db,
-	       diff_db,
-	       stronger);
+	       left_list[i].callsign, left_list[i].message, left_list[i].freq_hz,
+	       left_list[i].snr_db, right_list[j].snr_db, diff_db, stronger);
 	record_station_stat(left_list[i].callsign, left_list[i].snr_db, right_list[j].snr_db);
 	left_list[i].matched = true;
 	right_list[j].matched = true;
@@ -456,7 +483,6 @@ void print_channel_comparison(const char *utc_label,
     }
   }
   for (int i = 0; i < left_count; i++) {
-    extern char *get_continent_from_callsign(char *);
     if (continent && strcmp(get_continent_from_callsign(left_list[i].callsign), continent)) continue;
     if (!left_list[i].matched) {
       printf("CHCMP:  %-10s | %-22s | %4d Hz | L: %+3d dB | R:   ---  | LEFT only\n",
@@ -465,7 +491,6 @@ void print_channel_comparison(const char *utc_label,
     }
   }
   for (int j = 0; j < right_count; j++) {
-    extern char *get_continent_from_callsign(char *);
     if (continent && strcmp(get_continent_from_callsign(right_list[j].callsign), continent)) continue;
     if (!right_list[j].matched) {
       printf("CHCMP:  %-10s | %-22s | %4d Hz | L:   ---  | R: %+3d dB | RIGHT only\n",
@@ -477,247 +502,185 @@ void print_channel_comparison(const char *utc_label,
 }
 
 void run_parallel_decoders(const char *wav_left, const char *wav_right, const char *utc_label) {
-  int pipe_l[2], pipe_r[2];
-  if (pipe(pipe_l) < 0 || pipe(pipe_r) < 0) {
-    perror("pipe");
-    return;
-  }
-  pid_t pid_l = fork();
-  if (pid_l == 0) {
-    close(pipe_l[0]);
-    close(pipe_r[0]);
-    close(pipe_r[1]);
-    dup2(pipe_l[1], STDOUT_FILENO);
-    close(pipe_l[1]);
-    execlp(JT9_BINARY, JT9_BINARY, MODE_FLAG, "-d", DEPTH_FLAG, wav_left, (char *)NULL);
-    perror("execlp left");
-    _exit(127);
-  }
-  pid_t pid_r = fork();
-  if (pid_r == 0) {
-    close(pipe_r[0]);
-    close(pipe_l[0]);
-    close(pipe_l[1]);
-    dup2(pipe_r[1], STDOUT_FILENO);
-    close(pipe_r[1]);
-    execlp(JT9_BINARY, JT9_BINARY, MODE_FLAG, "-d", DEPTH_FLAG, wav_right, (char *)NULL);
-    perror("execlp right");
-    _exit(127);
-  }
-  close(pipe_l[1]);
-  close(pipe_r[1]);
+  char cmd_l[512], cmd_r[512];
+  snprintf(cmd_l, sizeof(cmd_l), "\"%s\" %s -d %s \"%s\"", JT9_BINARY, MODE_FLAG, DEPTH_FLAG, wav_left);
+  snprintf(cmd_r, sizeof(cmd_r), "\"%s\" %s -d %s \"%s\"", JT9_BINARY, MODE_FLAG, DEPTH_FLAG, wav_right);
+  // Launch both decoder processes simultaneously
+  FILE *fp_l = popen(cmd_l, "r");
+  FILE *fp_r = popen(cmd_r, "r");
   DecodeEntry left_decodes[MAX_DECODES];
   DecodeEntry right_decodes[MAX_DECODES];
-  int left_count = 0;
-  int right_count = 0;
-  FILE *fp_l = fdopen(pipe_l[0], "r");
-  FILE *fp_r = fdopen(pipe_r[0], "r");
+  int left_count = 0, right_count = 0;
   char line[256];
-  pthread_mutex_lock(&print_mutex);
+  mutex_lock(&print_mutex);
   if (fp_l) {
     while (fgets(line, sizeof(line), fp_l)) {
-      if (strncmp(line, "", 16) != 0) {
+      if (line[0] != '\0' && line[0] != '\n' && line[0] != '\r') {
 	printf("[%s] [LEFT]  %s", utc_label, line);
 	if (left_count < MAX_DECODES && parse_jt9_line(line, &left_decodes[left_count])) {
 	  left_count++;
 	}
       }
     }
-    fclose(fp_l);
-  } else {
-    close(pipe_l[0]);
+    pclose(fp_l);
   }
   if (fp_r) {
     while (fgets(line, sizeof(line), fp_r)) {
-      if (strncmp(line, "", 16) != 0) {
+      if (line[0] != '\0' && line[0] != '\n' && line[0] != '\r') {
 	printf("[%s] [RIGHT] %s", utc_label, line);
 	if (right_count < MAX_DECODES && parse_jt9_line(line, &right_decodes[right_count])) {
 	  right_count++;
 	}
       }
     }
-    fclose(fp_r);
-  } else {
-    close(pipe_r[0]);
+    pclose(fp_r);
   }
-  int status;
-  if (pid_l > 0) waitpid(pid_l, &status, 0);
-  if (pid_r > 0) waitpid(pid_r, &status, 0);
   print_channel_comparison(utc_label, left_decodes, left_count, right_decodes, right_count);
   fflush(stdout);
-  pthread_mutex_unlock(&print_mutex);
+  mutex_unlock(&print_mutex);
 }
 
+#ifdef _WIN32
+DWORD WINAPI decoder_thread_fn(LPVOID arg) {
+#else
 void *decoder_thread_fn(void *arg) {
+#endif
   DecodeJob *job = (DecodeJob *)arg;
   run_parallel_decoders(job->wav_left, job->wav_right, job->utc_label);
   unlink(job->wav_left);
   unlink(job->wav_right);
   free(job);
-  return NULL;
+  return 0;
 }
-
-static inline int16_t apply_fir_step(int16_t *history, int16_t new_sample) {
-  memmove(&history[1], &history[0], (FIR_TAPS - 1) * sizeof(int16_t));
-  history[0] = new_sample;
-  int32_t acc = 0;
-  for (int k = 0; k < FIR_TAPS; k++) {
-    acc += (int32_t)history[k] * fir_coeffs[k];
-  }
-  int32_t scaled = acc >> FIR_SCALE_SHIFT;
-  if (scaled > 32767) return 32767;
-  if (scaled < -32768) return -32768;
-  return (int16_t)scaled;
+ 
+void spawn_decoder_thread(DecodeJob *job) {
+#ifdef _WIN32
+   HANDLE hThread = CreateThread(NULL, 0, decoder_thread_fn, job, 0, NULL);
+   if (hThread) {
+     CloseHandle(hThread);
+   } else {
+     decoder_thread_fn(job);
+   }
+#else
+   pthread_t tid;
+   if (pthread_create(&tid, NULL, decoder_thread_fn, job) == 0) {
+     pthread_detach(tid);
+   } else {
+     decoder_thread_fn(job);
+   }
+#endif
 }
-
-void usage() {
-
+ 
+void usage(void) {
   fprintf(stderr, "Usage: multi-cmp {ALL,NA,AS,EU,AF,OC,AN}\n");
   exit(1);
 }
-
+ 
 int main(int argc, char **argv) {
-
-  struct sigaction sa;
-
-  if(argc != 2) usage();
-  if(strcmp(argv[1], "NA") && strcmp(argv[1], "AS") && strcmp(argv[1], "EU") && strcmp(argv[1], "AF") && strcmp(argv[1], "OC")
-     && strcmp(argv[1], "AN") && strcmp(argv[1], "ALL")) usage();
-  if(!strcmp(argv[1], "ALL")) continent = NULL;
-  else continent = argv[1];
-  memset(&sa, 0, sizeof(sa));
-  sa.sa_handler = handle_sigint;
-  sigaction(SIGINT, &sa, NULL);
-  sigaction(SIGTERM, &sa, NULL);
-  snd_pcm_t *capture_handle;
-  snd_pcm_hw_params_t *hw_params;
-  unsigned int rate = CAPTURE_RATE;
-  int err;
-
-  if ((err = snd_pcm_open(&capture_handle, ALSA_DEVICE, SND_PCM_STREAM_CAPTURE, 0)) < 0) {
-    fprintf(stderr, "Cannot open ALSA device %s: %s\n", ALSA_DEVICE, snd_strerror(err));
-    return 1;
-  }
-  snd_pcm_hw_params_alloca(&hw_params);
-  snd_pcm_hw_params_any(capture_handle, hw_params);
-  snd_pcm_hw_params_set_access(capture_handle, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED);
-  snd_pcm_hw_params_set_format(capture_handle, hw_params, SND_PCM_FORMAT_S16_LE);
-  if ((err = snd_pcm_hw_params_set_rate(capture_handle, hw_params, rate, 0)) < 0) {
-    fprintf(stderr, "Cannot set exact ALSA rate %u Hz (use 'default' or 'plughw:X,Y'): %s\n",
-	    rate, snd_strerror(err));
-    snd_pcm_close(capture_handle);
-    return 1;
-  }
-  snd_pcm_hw_params_set_channels(capture_handle, hw_params, CAPTURE_CHANNELS);
-  if ((err = snd_pcm_hw_params(capture_handle, hw_params)) < 0) {
-    fprintf(stderr, "Cannot set ALSA parameters: %s\n", snd_strerror(err));
-    snd_pcm_close(capture_handle);
-    return 1;
-  }
-
+  if (argc != 2) usage();
+  if (strcmp(argv[1], "NA") && strcmp(argv[1], "AS") && strcmp(argv[1], "EU") &&
+      strcmp(argv[1], "AF") && strcmp(argv[1], "OC") && strcmp(argv[1], "AN") &&
+      strcmp(argv[1], "ALL")) usage();
+  continent = (!strcmp(argv[1], "ALL")) ? NULL : argv[1];
+  signal(SIGINT, handle_sigint);
+  signal(SIGTERM, handle_sigint);
+  mutex_init(&stats_mutex);
+  mutex_init(&print_mutex);
+  mutex_init(&audio_mutex);
   uint32_t max_output_samples = WAV_SAMPLE_RATE * UTC_PERIOD_SEC;
-  int16_t *left_samples  = (int16_t *)calloc(max_output_samples, sizeof(int16_t));
-  int16_t *right_samples = (int16_t *)calloc(max_output_samples, sizeof(int16_t));
-  int16_t interleaved_buf[CHUNK_FRAMES * CAPTURE_CHANNELS];
-  if (!left_samples || !right_samples) {
+  memset(&cap_state, 0, sizeof(cap_state));
+  cap_state.max_samples = max_output_samples;
+  cap_state.left_buf    = (int16_t *)calloc(max_output_samples, sizeof(int16_t));
+  cap_state.right_buf   = (int16_t *)calloc(max_output_samples, sizeof(int16_t));
+  int16_t *local_left  = (int16_t *)calloc(max_output_samples, sizeof(int16_t));
+  int16_t *local_right = (int16_t *)calloc(max_output_samples, sizeof(int16_t));
+  if (!cap_state.left_buf || !cap_state.right_buf || !local_left || !local_right) {
     fprintf(stderr, "Memory allocation failed.\n");
-    free(left_samples);
-    free(right_samples);
-    snd_pcm_close(capture_handle);
     return 1;
   }
-  int16_t fir_hist_l[FIR_TAPS] = {0};
-  int16_t fir_hist_r[FIR_TAPS] = {0};
+  // Initialize cross-platform audio capture via miniaudio
+  ma_device_config deviceConfig = ma_device_config_init(ma_device_type_capture);
+  deviceConfig.capture.format   = ma_format_s16;
+  deviceConfig.capture.channels = CAPTURE_CHANNELS;
+  deviceConfig.sampleRate       = CAPTURE_RATE;
+  deviceConfig.dataCallback     = data_callback;
+  ma_device device;
+  if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
+    fprintf(stderr, "Failed to initialize audio capture device.\n");
+    return 1;
+  }
+  if (ma_device_start(&device) != MA_SUCCESS) {
+    fprintf(stderr, "Failed to start audio capture device.\n");
+    ma_device_uninit(&device);
+    return 1;
+  }
+  char temp_dir[256];
+  get_temp_dir(temp_dir, sizeof(temp_dir));
   char utc_label[64];
   uint32_t cycle_id = 0;
-  // Prepare ALSA stream once before entering the periodic capture loop
-  snd_pcm_prepare(capture_handle);
-  printf("Dual-Channel RX active (%u Hz -> %d Hz, period=%ds, wall-clock cutoff=%.1fs). Press Ctrl+C to stop.\n",
-	 rate, WAV_SAMPLE_RATE, UTC_PERIOD_SEC, CAPTURE_DEADLINE);
+  printf("Dual-Channel RX active (%d Hz -> %d Hz, period=%ds, wall-clock cutoff=%.1fs). Press Ctrl+C to stop.\n",
+	 CAPTURE_RATE, WAV_SAMPLE_RATE, UTC_PERIOD_SEC, CAPTURE_DEADLINE);
   while (keep_running) {
     wait_for_utc_boundary(UTC_PERIOD_SEC, utc_label, sizeof(utc_label));
     if (!keep_running) break;
-    // Calculate exact wall-clock deadline (mark_sec + 14.0s)
-    struct timespec now;
-    clock_gettime(CLOCK_REALTIME, &now);
-    time_t mark_sec = now.tv_sec - (now.tv_sec % UTC_PERIOD_SEC);
+    double now = get_wall_time_sec();
+    time_t mark_sec = (time_t)now - ((time_t)now % UTC_PERIOD_SEC);
     double stop_deadline = (double)mark_sec + CAPTURE_DEADLINE;
-    // Drain any stale frames already sitting in the ALSA ring buffer
-    snd_pcm_sframes_t avail = snd_pcm_avail(capture_handle);
-    while (avail > 0) {
-      snd_pcm_sframes_t to_drain = (avail > CHUNK_FRAMES) ? CHUNK_FRAMES : avail;
-      if (snd_pcm_readi(capture_handle, interleaved_buf, to_drain) <= 0) {
-	break;
-      }
-      avail -= to_drain;
+    // Reset capture buffer and enable recording
+    mutex_lock(&audio_mutex);
+    cap_state.write_idx = 0;
+    cap_state.decimate_phase = 0;
+    cap_state.capturing = true;
+    mutex_unlock(&audio_mutex);
+    // Wait until the 14.0s deadline or buffer fills
+    while (keep_running) {
+      if (get_wall_time_sec() >= stop_deadline) break;
+      mutex_lock(&audio_mutex);
+      bool full = (cap_state.write_idx >= max_output_samples);
+      mutex_unlock(&audio_mutex);
+      if (full) break;
+      sleep_ms(10);
     }
-    uint32_t out_idx = 0;
-    int decimate_phase = 0;
-    while (keep_running && out_idx < max_output_samples) {
-      clock_gettime(CLOCK_REALTIME, &now);
-      double now_sec = (double)now.tv_sec + (double)now.tv_nsec / 1e9;
-      if (now_sec >= stop_deadline) {
-	break;
-      }
-      snd_pcm_sframes_t rc = snd_pcm_readi(capture_handle, interleaved_buf, CHUNK_FRAMES);
-      if (rc == -EPIPE) {
-	snd_pcm_prepare(capture_handle);
-	continue;
-      } else if (rc < 0) {
-	if (rc != -EINTR) {
-	  fprintf(stderr, "ALSA read error: %s\n", snd_strerror(rc));
-	}
-	break;
-      }
-      for (snd_pcm_sframes_t i = 0; i < rc; i++) {
-	int16_t filt_l = apply_fir_step(fir_hist_l, interleaved_buf[i * 2]);
-	int16_t filt_r = apply_fir_step(fir_hist_r, interleaved_buf[i * 2 + 1]);
-	decimate_phase++;
-	if (decimate_phase == DECIMATION_FACTOR) {
-	  if (out_idx < max_output_samples) {
-	    left_samples[out_idx]  = filt_l;
-	    right_samples[out_idx] = filt_r;
-	    out_idx++;
-	  }
-	  decimate_phase = 0;
-	}
-      }
-    }
+    // Stop recording and copy samples out safely
+    mutex_lock(&audio_mutex);
+    cap_state.capturing = false;
+    uint32_t captured = cap_state.write_idx;
+    memcpy(local_left, cap_state.left_buf, captured * sizeof(int16_t));
+    memcpy(local_right, cap_state.right_buf, captured * sizeof(int16_t));
+    mutex_unlock(&audio_mutex);
     if (!keep_running) break;
-    // Zero-pad the remaining ~1.0s of the 15.0s WAV file
-    memset(&left_samples[out_idx], 0, (max_output_samples - out_idx) * sizeof(int16_t));
-    memset(&right_samples[out_idx], 0, (max_output_samples - out_idx) * sizeof(int16_t));
+    // Zero-pad remaining ~1.0s of the 15.0s WAV file
+    if (captured < max_output_samples) {
+      memset(&local_left[captured], 0, (max_output_samples - captured) * sizeof(int16_t));
+      memset(&local_right[captured], 0, (max_output_samples - captured) * sizeof(int16_t));
+    }
     DecodeJob *job = (DecodeJob *)malloc(sizeof(DecodeJob));
     if (job) {
       uint32_t slot = cycle_id++ % 4;
-      snprintf(job->wav_left, sizeof(job->wav_left), "/dev/shm/jt9x_l_%u.wav", slot);
-      snprintf(job->wav_right, sizeof(job->wav_right), "/dev/shm/jt9x_r_%u.wav", slot);
+      snprintf(job->wav_left, sizeof(job->wav_left), "%sjt9x_l_%u.wav", temp_dir, slot);
+      snprintf(job->wav_right, sizeof(job->wav_right), "%sjt9x_r_%u.wav", temp_dir, slot);
       snprintf(job->utc_label, sizeof(job->utc_label), "%s", utc_label);
-      if (write_mono_wav(job->wav_left, left_samples, max_output_samples) == 0 &&
-	  write_mono_wav(job->wav_right, right_samples, max_output_samples) == 0) {
-	pthread_t tid;
-	if (pthread_create(&tid, NULL, decoder_thread_fn, job) == 0) {
-	  pthread_detach(tid);
-	} else {
-	  decoder_thread_fn(job);
-	}
+      if (write_mono_wav(job->wav_left, local_left, max_output_samples) == 0 &&
+	  write_mono_wav(job->wav_right, local_right, max_output_samples) == 0) {
+	spawn_decoder_thread(job);
       } else {
 	free(job);
       }
     }
   }
-  // Brief pause to allow any in-flight decode thread to finish before printing final summary
-  usleep(500000);
+  sleep_ms(500);
   print_final_station_summary();
   for (uint32_t i = 0; i < 4; i++) {
-    char path[64];
-    snprintf(path, sizeof(path), "/dev/shm/jt9x_l_%u.wav", i);
+    char path[256];
+    snprintf(path, sizeof(path), "%sjt9x_l_%u.wav", temp_dir, i);
     unlink(path);
-    snprintf(path, sizeof(path), "/dev/shm/jt9x_r_%u.wav", i);
+    snprintf(path, sizeof(path), "%sjt9x_r_%u.wav", temp_dir, i);
     unlink(path);
   }
-  free(left_samples);
-  free(right_samples);
-  snd_pcm_close(capture_handle);
+  ma_device_uninit(&device);
+  free(cap_state.left_buf);
+  free(cap_state.right_buf);
+  free(local_left);
+  free(local_right);
   return 0;
 }
