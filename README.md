@@ -8,6 +8,8 @@ multi-cmp needs: miniaudio, pthread library (-phthread), dynamic library handlin
 windows compilation does not need to add them but on mac perhaps: -framework CoreFoundation -framework CoreAudio -framework AudioToolbox
 would work (?). Note that miniaudio is include header only - there is only the include file but no library.
 
+Miniaudio.h is available from https://raw.githubusercontent.com/mackron/miniaudio/master/miniaudio.h
+
 Background
 
 My Elecraft K4D has two receivers, which can be used in diversity receive with my TX (inverted L) and RX antennas (beverages) on low bands. So the first RX antenna is connected to inverted L and second to beverage. The radio outputs audio from the RXs to left and right stereo channels. But how to take advantage of this set up on FT8? The first thought was to combine the audio channels (mono) and feed that into WSJT-X. Even though the radio has the two RXs phase locked, there appears to be some differences in the phase factor of their audio signal. Hence it is not a a good idea to combined them directly. Reading them separately with WSJT-X is not possible since it only supports one audio input. So, what to do? The proper solution would to have WSJT-X GUI read two audio inputs but that's easier said than done. One could run two WSJT-X's separately for the RXs but running QSOs is clumsy.
