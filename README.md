@@ -6,7 +6,8 @@ hints on compilation.
 
 multi-cmp needs: miniaudio, pthread library (-phthread), dynamic library handling (-dl) and math library (-lm). I think
 windows compilation does not need to add them but on mac perhaps: -framework CoreFoundation -framework CoreAudio -framework AudioToolbox
-would work (?). Note that miniaudio is include header only - there is only the include file but no library.
+would work (?). Note that miniaudio is include header only - there is only the include file but no library. There are two source files:
+multi-cmp.c and continent.c that go with it.
 
 Miniaudio.h is available from https://raw.githubusercontent.com/mackron/miniaudio/master/miniaudio.h
 
