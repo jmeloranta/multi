@@ -2,7 +2,7 @@
  * Cross-platform comparison of left (RX) vs. right (sub RX) decodes.
  * Supports Linux, macOS, and Windows.
  *
- * Make sure the paths below correspond to your system.
+ * Make sure the paths below correspond to your system. jt9 program is part of WSJT-X or WS.
  *
  */
 
