@@ -3,6 +3,13 @@
  * Supports Linux, macOS, and Windows.
  *
  * Make sure the paths below correspond to your system. jt9 program is part of WSJT-X or WS.
+ * You can also override the jt9 path at runtime using the JT9_PATH environment variable.
+ *
+ * If the JT9 program paths below do now work for you, you can set
+ * JT9_PATH environment variable to point to it.
+ *
+ * Linux/Mac: export JT9_PATH=...
+ * Windows: set JT9_PATH=...
  *
  */
 
@@ -16,6 +23,7 @@
 
 #ifdef _WIN32
   #define _CRT_SECURE_NO_WARNINGS
+  #define _WIN32_WINNT 0x0602
   #define WIN32_LEAN_AND_MEAN
   #include <windows.h>
   #include <io.h>
@@ -98,6 +106,14 @@ static mutex_t audio_mutex;
 void handle_sigint(int sig) {
     (void)sig;
     keep_running = 0;
+}
+
+const char *get_jt9_binary(void) {
+    const char *env_path = getenv("JT9_PATH");
+    if (env_path != NULL && env_path[0] != '\0') {
+        return env_path;
+    }
+    return JT9_BINARY;
 }
 
 double get_wall_time_sec(void) {
@@ -464,7 +480,7 @@ void print_channel_comparison(const char *utc_label,
                               DecodeEntry *left_list, int left_count,
                               DecodeEntry *right_list, int right_count) {
     if (left_count == 0 && right_count == 0) return;
-    extern const char *get_continent_from_callsign(char *);
+    extern const char *get_continent_from_callsign(const char *);
     printf("[%s] --- Channel dB Comparison (Left - Right) ---\n", utc_label);
     for (int i = 0; i < left_count; i++) {
         if (continent && strcmp(get_continent_from_callsign(left_list[i].callsign), continent)) continue;
@@ -505,9 +521,15 @@ void print_channel_comparison(const char *utc_label,
 }
 
 void run_parallel_decoders(const char *wav_left, const char *wav_right, const char *utc_label) {
+    const char *jt9_bin = get_jt9_binary();
     char cmd_l[512], cmd_r[512];
-    snprintf(cmd_l, sizeof(cmd_l), "\"%s\" %s -d %s \"%s\"", JT9_BINARY, MODE_FLAG, DEPTH_FLAG, wav_left);
-    snprintf(cmd_r, sizeof(cmd_r), "\"%s\" %s -d %s \"%s\"", JT9_BINARY, MODE_FLAG, DEPTH_FLAG, wav_right);
+#ifdef _WIN32
+    snprintf(cmd_l, sizeof(cmd_l), "\"\"%s\" %s -d %s \"%s\"\"", jt9_bin, MODE_FLAG, DEPTH_FLAG, wav_left);
+    snprintf(cmd_r, sizeof(cmd_r), "\"\"%s\" %s -d %s \"%s\"\"", jt9_bin, MODE_FLAG, DEPTH_FLAG, wav_right);
+#else
+    snprintf(cmd_l, sizeof(cmd_l), "\"%s\" %s -d %s \"%s\"", jt9_bin, MODE_FLAG, DEPTH_FLAG, wav_left);
+    snprintf(cmd_r, sizeof(cmd_r), "\"%s\" %s -d %s \"%s\"", jt9_bin, MODE_FLAG, DEPTH_FLAG, wav_right);
+#endif
     // Launch both decoder processes simultaneously
     FILE *fp_l = popen(cmd_l, "r");
     FILE *fp_r = popen(cmd_r, "r");
@@ -575,16 +597,18 @@ void spawn_decoder_thread(DecodeJob *job) {
 }
 
 void usage(void) {
-    fprintf(stderr, "Usage: multi-cmp {ALL,NA,AS,EU,AF,OC,AN}\n");
+    fprintf(stderr, "Usage: multi-cmp {ALL,NA,SA,AS,EU,AF,OC,AN}\n");
     exit(1);
 }
 
 int main(int argc, char **argv) {
     if (argc != 2) usage();
-    if (strcmp(argv[1], "NA") && strcmp(argv[1], "AS") && strcmp(argv[1], "EU") &&
-        strcmp(argv[1], "AF") && strcmp(argv[1], "OC") && strcmp(argv[1], "AN") &&
-        strcmp(argv[1], "ALL")) usage();
+    if (strcmp(argv[1], "NA") && strcmp(argv[1], "SA") && strcmp(argv[1], "AS") &&
+        strcmp(argv[1], "EU") && strcmp(argv[1], "AF") && strcmp(argv[1], "OC") &&
+        strcmp(argv[1], "AN") && strcmp(argv[1], "ALL")) usage();
     continent = (!strcmp(argv[1], "ALL")) ? NULL : argv[1];
+
+    printf("Using jt9 binary: %s\n\n", get_jt9_binary());
 
     // Initialize miniaudio context to enumerate capture devices
     ma_context context;
